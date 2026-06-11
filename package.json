@@ -1,0 +1,62 @@
+{
+  "name": "polymath-agent",
+  "version": "0.1.0",
+  "description": "Polymath — a cost-optimized, multi-model TUI coding agent. Decomposes work into typed tasks, routes each task to the cheapest capable model via OpenRouter, and logs real usage/cost by date + model.",
+  "type": "module",
+  "bin": {
+    "poly": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/cli.js",
+    "prepare": "node esbuild.config.mjs",
+    "prepublishOnly": "npm run typecheck && npm run build"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "tui",
+    "openrouter",
+    "llm",
+    "cost-optimization",
+    "coding-agent"
+  ],
+  "author": "psychiatristlee",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/psychiatristlee/mathology.git"
+  },
+  "homepage": "https://github.com/psychiatristlee/mathology#readme",
+  "bugs": {
+    "url": "https://github.com/psychiatristlee/mathology/issues"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "ink": "^5.1.0",
+    "ink-spinner": "^5.0.0",
+    "ink-text-input": "^6.0.0",
+    "picocolors": "^1.1.1",
+    "react": "^18.3.1",
+    "zod": "^3.24.1"
+  },
+  "optionalDependencies": {
+    "firebase-admin": "^13.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/react": "^18.3.18",
+    "esbuild": "^0.24.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

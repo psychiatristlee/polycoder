@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Polymath — cost-optimized multi-model AI agent</title>
+    <meta name="description" content="A cost-optimized, multi-model AI agent for your terminal, VS Code, and Chrome. Routes each task to the cheapest capable model and tracks cost by date + model." />
+    <style>
+      :root {
+        --bg: #0b0b12; --panel: #15151f; --line: #2a2a3a; --fg: #e9e9f1;
+        --dim: #9a9ab0; --accent: #a855f7; --green: #22c55e; --yellow: #eab308; --cyan: #22d3ee;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: radial-gradient(1200px 600px at 50% -10%, #1c1230, var(--bg)); color: var(--fg);
+             font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+      a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+      .wrap { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+      header.hero { text-align: center; padding: 80px 20px 40px; }
+      .logo { font-size: 56px; }
+      h1 { font-size: 44px; margin: 8px 0 6px; letter-spacing: -0.02em; }
+      .tag { font-size: 20px; color: var(--dim); max-width: 680px; margin: 0 auto 28px; }
+      .cta { display: inline-flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+      .btn { padding: 11px 20px; border-radius: 10px; font-weight: 600; border: 1px solid var(--line); }
+      .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+      .btn.ghost { background: #ffffff08; color: var(--fg); }
+      code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .term { background: #0d0d16; border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px;
+              text-align: left; max-width: 720px; margin: 36px auto 0; font-size: 13.5px; overflow-x: auto; }
+      .term .b { color: var(--accent); font-weight: 700; } .term .y { color: var(--yellow); }
+      .term .g { color: var(--green); } .term .c { color: var(--cyan); } .term .d { color: var(--dim); }
+      section { padding: 40px 0; border-top: 1px solid var(--line); }
+      h2 { font-size: 28px; margin: 0 0 20px; }
+      .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+      .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+      .card h3 { margin: 0 0 6px; font-size: 18px; } .card .ic { font-size: 26px; }
+      .card p { color: var(--dim); font-size: 14px; margin: 6px 0 12px; }
+      .card pre { background: #0d0d16; border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+                  font-size: 12.5px; overflow-x: auto; color: var(--fg); }
+      .feat { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+      .feat .card p { color: var(--dim); font-size: 15px; }
+      .muted { color: var(--dim); font-size: 14px; }
+      footer { text-align: center; color: var(--dim); padding: 40px 0 60px; font-size: 14px; border-top: 1px solid var(--line); }
+      @media (max-width: 720px) { .grid, .feat { grid-template-columns: 1fr; } h1 { font-size: 34px; } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="hero">
+        <div class="logo">🪄</div>
+        <h1>Polymath</h1>
+        <p class="tag">
+          A cost-optimized, <strong>multi-model</strong> AI agent for your
+          <strong>terminal, VS&nbsp;Code, and Chrome</strong>. It splits work into typed tasks,
+          routes each to the <strong>cheapest model that's actually good at it</strong>, and tracks
+          real cost by date&nbsp;+&nbsp;model.
+        </p>
+        <div class="cta">
+          <a class="btn primary" href="https://github.com/psychiatristlee/mathology">View on GitHub</a>
+          <a class="btn ghost" href="#install">Install</a>
+        </div>
+
+        <pre class="term"><span class="d">$ poly recommend "add a dark-mode toggle and a test"</span>
+<span class="c">Plan</span>  1 plan · 2 search · 3 read · 4 edit · 5 review
+<span class="b">Best value</span> <span class="d">(strength per dollar)</span>
+  4 edit    <span class="y">qwen/qwen3-coder</span>      <span class="d">~$0.0021</span>   <span class="d">← cheap, coder-tuned</span>
+  5 review  <span class="y">deepseek/deepseek-r1</span>  <span class="d">~$0.0006</span>
+<span class="g">→ ~96% cheaper than running every step on the strongest model.</span></pre>
+      </header>
+
+      <section id="surfaces">
+        <h2>Three surfaces, one brain</h2>
+        <div class="grid">
+          <div class="card">
+            <div class="ic">⌨️</div>
+            <h3>CLI / TUI</h3>
+            <p>Full coding agent in your terminal — plan preview, per-task routing, live cost.</p>
+            <pre>npm i -g polymath-agent
+poly login
+poly run "fix the bug"</pre>
+          </div>
+          <div class="card">
+            <div class="ic">🧩</div>
+            <h3>VS Code</h3>
+            <p>Run the agent in the integrated terminal. Command Palette → “Polymath:”.</p>
+            <pre>cd vscode-extension
+npm i && npm run package
+# install the .vsix</pre>
+          </div>
+          <div class="card">
+            <div class="ic">🌐</div>
+            <h3>Chrome</h3>
+            <p>Side-panel agent that automates the active tab: read, click, type, extract.</p>
+            <pre>cd chrome-extension
+npm i && npm run build
+# Load unpacked</pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="features">
+        <h2>Why it's different</h2>
+        <div class="feat">
+          <div class="card">
+            <h3>💸 Cheapest capable model per task</h3>
+            <p>Each task maps to a skill (coding / reasoning / retrieval / speed). A cheap
+            coder-tuned model handles edits; a reasoning model handles hard logic — picked by
+            <strong>strength-per-dollar</strong>, not price alone.</p>
+          </div>
+          <div class="card">
+            <h3>📊 Real cost ledger</h3>
+            <p>Every model call's actual tokens and cost are logged by <strong>date + model</strong>
+            — SQLite in the CLI, <code>chrome.storage</code> in the browser. <code>poly usage</code>.</p>
+          </div>
+          <div class="card">
+            <h3>🔮 Recommend before you run</h3>
+            <p>See cheapest / best-value / best-quality model combos and the estimated savings
+            <em>before</em> spending a cent.</p>
+          </div>
+          <div class="card">
+            <h3>🔌 300+ models, one key</h3>
+            <p>Reaches every major provider through <a href="https://openrouter.ai">OpenRouter</a>.
+            Guided key setup like Claude Code.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="install">
+        <h2>Install</h2>
+        <p class="muted">Requires Node.js ≥ 22.5. Full docs in the
+          <a href="https://github.com/psychiatristlee/mathology#readme">README</a>.</p>
+        <pre class="term"><span class="d"># CLI — from npm</span>
+npm install -g polymath-agent
+poly login
+
+<span class="d"># or from source</span>
+git clone https://github.com/psychiatristlee/mathology.git
+cd mathology && npm install && npm link</pre>
+      </section>
+
+      <footer>
+        Polymath · MIT · <a href="https://github.com/psychiatristlee/mathology">github.com/psychiatristlee/mathology</a>
+      </footer>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Polymath — browser agent",
+  "version": "0.1.0",
+  "description": "Cost-optimized multi-model agent that automates work in your browser and tracks cost by date + model.",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "scripting", "tabs", "activeTab", "sidePanel"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "dist/background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "options_page": "options.html",
+  "action": {
+    "default_title": "Open Polymath"
+  }
+}

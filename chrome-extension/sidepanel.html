@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Polymath</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { font: 13px/1.5 -apple-system, system-ui, sans-serif; margin: 0; padding: 10px; }
+      header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+      .brand { font-weight: 700; color: #a855f7; }
+      .cost { color: #16a34a; font-variant-numeric: tabular-nums; }
+      select, textarea, button { font: inherit; }
+      textarea { width: 100%; box-sizing: border-box; min-height: 56px; resize: vertical; padding: 6px; }
+      .row { display: flex; gap: 6px; margin: 6px 0; }
+      button { padding: 5px 10px; cursor: pointer; border: 1px solid #8884; border-radius: 6px; background: #8881; }
+      button.primary { background: #a855f7; color: #fff; border-color: #a855f7; }
+      .banner { background: #f59e0b22; border: 1px solid #f59e0b; padding: 6px 8px; border-radius: 6px; margin-bottom: 8px; }
+      #out { white-space: pre-wrap; word-break: break-word; background: #8881; padding: 8px; border-radius: 6px; max-height: 60vh; overflow: auto; margin: 0; }
+      .t { color: #888; } .y { color: #d97706; } .m { color: #a855f7; } .g { color: #16a34a; } .r { color: #dc2626; } .c { color: #0891b2; }
+      a { color: #a855f7; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span><span class="brand">Polymath</span> <span class="t">browser agent</span></span>
+      <span>
+        <select id="objective" title="routing objective">
+          <option value="cheapest">cheapest</option>
+          <option value="value">value</option>
+          <option value="quality">quality</option>
+        </select>
+        <span class="cost" id="cost">$0</span>
+      </span>
+    </header>
+
+    <div id="needkey" class="banner" hidden>
+      No OpenRouter API key. <a id="openopts" href="#">Connect one →</a>
+    </div>
+
+    <textarea id="goal" placeholder="What should Polymath do in this tab? e.g. 'summarize this article and copy the key points'"></textarea>
+    <div class="row">
+      <button id="run" class="primary">Run</button>
+      <button id="recommend">Recommend</button>
+      <button id="usageBtn">Usage</button>
+    </div>
+    <pre id="out" class="t">Connect a key, type a goal, then Run. Recommend shows model/cost options first.</pre>
+
+    <script type="module" src="dist/sidepanel.js"></script>
+  </body>
+</html>

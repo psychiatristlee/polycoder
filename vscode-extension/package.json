@@ -1,0 +1,57 @@
+{
+  "name": "polymath-vscode",
+  "displayName": "Polymath",
+  "description": "Cost-optimized multi-model coding agent — run Polymath inside VS Code.",
+  "version": "0.1.0",
+  "publisher": "polymath",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["AI", "Other"],
+  "keywords": ["ai", "agent", "openrouter", "llm", "cost"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/psychiatristlee/mathology.git",
+    "directory": "vscode-extension"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      { "command": "polymath.run", "title": "Polymath: Run agent", "category": "Polymath" },
+      { "command": "polymath.recommend", "title": "Polymath: Recommend models for a task", "category": "Polymath" },
+      { "command": "polymath.usage", "title": "Polymath: Show usage & cost", "category": "Polymath" },
+      { "command": "polymath.models", "title": "Polymath: Browse models", "category": "Polymath" },
+      { "command": "polymath.login", "title": "Polymath: Connect API key", "category": "Polymath" }
+    ],
+    "menus": {
+      "editor/context": [
+        { "command": "polymath.recommend", "group": "polymath", "when": "editorHasSelection" }
+      ]
+    },
+    "configuration": {
+      "title": "Polymath",
+      "properties": {
+        "polymath.cliPath": {
+          "type": "string",
+          "default": "poly",
+          "description": "Path to the Polymath CLI executable (the `poly` command)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "typecheck": "tsc --noEmit",
+    "vscode:prepublish": "node esbuild.mjs",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.3"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "polymath-chrome",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Polymath Chrome extension — multi-model browser automation agent.",
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.3"
+  }
+}

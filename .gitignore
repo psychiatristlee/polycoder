@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+functions/node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+*.vsix
+
+# Logs
+*.log
+
+# OS / editors
+.DS_Store
+*.swp
+.idea/
+*.iml
+
+# Env / secrets
+.env
+.env.local
+functions/.env
+*.serviceaccount.json
+service-account*.json
+
+# Local app data (usage DB lives in the OS config dir; ignore stray copies)
+*.sqlite
+*.sqlite3
+polymath.db
+
+# Firebase CLI cache
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+
+# Claude Code local state
+.claude/
