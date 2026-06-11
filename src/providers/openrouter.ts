@@ -6,7 +6,10 @@ import type {
   ToolCall,
 } from "./types.js";
 
-const BASE = "https://openrouter.ai/api/v1";
+// Overridable for proxies/testing; guarded so the same code runs in browsers (extensions).
+const BASE =
+  (globalThis as any).process?.env?.OPENROUTER_BASE_URL?.replace(/\/$/, "") ||
+  "https://openrouter.ai/api/v1";
 
 export interface OpenRouterOptions {
   apiKey?: string;
