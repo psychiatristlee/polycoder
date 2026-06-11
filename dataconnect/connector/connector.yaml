@@ -1,0 +1,5 @@
+connectorId: "analytics"
+generate:
+  javascriptSdk:
+    outputDir: "../generated/js"
+    package: "@polymath/dataconnect"

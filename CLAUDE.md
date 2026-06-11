@@ -32,9 +32,11 @@ src/
 │   ├── tools.ts        # read_file/write_file/list_dir/run_command/finish + executor
 │   └── loop.ts         # plan -> per-step route -> tool loop -> log usage (emits events)
 ├── usage/
-│   ├── db.ts           # node:sqlite schema + queries (report by date+model)
-│   ├── logger.ts       # record one completion's usage
+│   ├── db.ts           # node:sqlite schema: usage_log + sessions/step_runs/command_runs + analysis queries
+│   ├── logger.ts       # record one completion's usage (date+model+command)
 │   ├── report.ts       # render the date+model report
+│   ├── analyze.ts      # `poly analyze`: min-token model per task, objective×achievement, per-command
+│   ├── dataconnect.ts  # push ledger to Firebase Data Connect (executeGraphql REST, ADC)
 │   └── firestoreSync.ts# optional push to Firestore (firebase-admin, lazy import)
 ├── recommend/
 │   └── recommend.ts    # build + render pre-run recommendations (strategies, value-by-tier)
@@ -72,8 +74,19 @@ node dist/cli.js <args>
 - New task types: add to `planner/tasks.ts` `TaskType` + `TASK_SPECS`, and the
   planner system prompt in `planner/planner.ts`.
 
-## Firebase (optional usage sync)
+## Analytics (core feature)
 
-- `poly config firestore on` enables sync; `poly sync` / `poly usage --sync` push.
-- Credentials: `FIREBASE_SERVICE_ACCOUNT_KEY` (full SA JSON) or ADC.
-- Target: project `mathology-b8e3d`, collection `polymath_usage` (configurable).
+- Capture grain: `sessions` (goal + objective + achievement) → `step_runs` (model,
+  iterations, tokens, finished_by) → `usage_log` (per LLM call) + `command_runs`.
+- Achievement: auto_score = completed/planned steps; user_score = 0-9 TUI rating
+  after each run (App.tsx "rate" phase, setUserScore).
+- `poly analyze` answers: min-token model per task type (success ≥50%), objective
+  vs achievement, tokens per command. SQL equivalents: dataconnect/ANALYSIS.sql.
+
+## Firebase (optional analytics sync)
+
+- SQL sink: Firebase Data Connect — schema in `dataconnect/` (GraphQL SDL → Postgres),
+  `poly config dataconnect on` + `poly sync` (usage/dataconnect.ts, executeGraphql REST).
+  Requires Blaze plan + Cloud SQL instance; see dataconnect/README.md.
+- Document sink: Firestore — `poly config firestore on`; collection `polymath_usage`.
+- Credentials: `FIREBASE_SERVICE_ACCOUNT_KEY` (full SA JSON) or ADC. Project `mathology-b8e3d`.

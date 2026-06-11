@@ -1,0 +1,11 @@
+specVersion: "v1"
+serviceId: "polymath"
+location: "us-east4"
+schema:
+  source: "./schema"
+  datasource:
+    postgresql:
+      database: "polymath"
+      cloudSql:
+        instanceId: "polymath-fdc"
+connectorDirs: ["./connector"]

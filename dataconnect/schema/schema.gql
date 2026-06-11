@@ -1,0 +1,78 @@
+# Polymath analytics schema — Firebase Data Connect (PostgreSQL).
+#
+# Grain hierarchy (coarse → fine):
+#   Session     1 ─── n  StepRun      (one agent run → its plan steps)
+#   Session     1 ─── n  ModelCall    (every individual LLM call)
+#   CommandRun  n ─── 1  Session      (CLI command invocations; `run` links to a session)
+#
+# Answers the core questions:
+#   • Which model finishes each task type with the FEWEST tokens? (StepRun)
+#   • Which approach (routing objective) reaches the goal cheapest? (Session)
+#   • How much does each CLI command consume? (CommandRun)
+#   • How well was the user's goal achieved? (Session.autoScore / userScore)
+
+"""One agent run (`poly run`): the goal, the approach, the outcome."""
+type Session @table(name: "sessions", key: ["id"]) {
+  id: String!                  # CLI-generated UUID (same id as the local SQLite session)
+  startedAt: Timestamp!
+  date: Date!
+  goal: String!
+  command: String!             # CLI command that started it (normally 'run')
+  objective: String!           # routing approach: 'cheapest' | 'value' | 'quality'
+  plannedSteps: Int!
+  completedSteps: Int!
+  failedSteps: Int!
+  autoScore: Float             # 0..1 = completedSteps / plannedSteps (agent-computed)
+  userScore: Int               # 0..9 user-rated goal achievement (null = unrated)
+  promptTokens: Int!
+  completionTokens: Int!
+  costUsd: Float!
+  durationMs: Int!
+}
+
+"""One executed plan step: which model, how it approached it, what it cost."""
+type StepRun @table(name: "step_runs") {
+  session: Session!            # FK column sessionId
+  stepNo: Int!
+  taskType: String!            # plan|search|read|edit|command|review|reason|explain|summarize|chat
+  skill: String!               # coding|reasoning|retrieval|speed|general|vision
+  model: String!               # e.g. 'qwen/qwen3-coder'
+  provider: String!            # e.g. 'qwen'
+  iterations: Int!             # LLM round-trips needed for the step
+  toolCalls: Int!
+  promptTokens: Int!
+  completionTokens: Int!
+  costUsd: Float!
+  finishedBy: String!          # 'finish-tool' | 'text' | 'max-iters' | 'error'
+  success: Boolean!
+  durationMs: Int!
+}
+
+"""Every individual LLM call (finest grain; mirrors the local usage ledger)."""
+type ModelCall @table(name: "model_calls") {
+  session: Session
+  ts: Timestamp!
+  date: Date!
+  command: String!
+  taskType: String!
+  model: String!
+  provider: String!
+  promptTokens: Int!
+  completionTokens: Int!
+  totalTokens: Int!
+  costUsd: Float!
+}
+
+"""One CLI command invocation and the tokens it consumed."""
+type CommandRun @table(name: "command_runs") {
+  session: Session             # set for 'run'; null for keyless commands
+  ts: Timestamp!
+  date: Date!
+  command: String!             # run | recommend | models | usage | analyze | sync
+  args: String                 # sanitized args summary (the goal text, flags)
+  objective: String
+  promptTokens: Int!
+  completionTokens: Int!
+  costUsd: Float!
+  durationMs: Int!
+}

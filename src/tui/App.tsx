@@ -8,6 +8,7 @@ import type { RoutingPolicy } from "../router/policy.js";
 import { runAgent, type AgentEvent, type AgentDeps } from "../agent/loop.js";
 import { heuristicPlan } from "../planner/planner.js";
 import { buildRecommendation, type Recommendation } from "../recommend/recommend.js";
+import { setUserScore } from "../usage/db.js";
 import { usd, tokens } from "../util/format.js";
 
 export interface AppProps {
@@ -22,7 +23,7 @@ export interface AppProps {
   initialGoal?: string;
 }
 
-type Phase = "input" | "preview" | "running" | "done";
+type Phase = "input" | "preview" | "running" | "rate" | "done";
 
 interface LogLine {
   key: number;
@@ -40,6 +41,7 @@ export default function App(props: AppProps) {
   const [cost, setCost] = useState(0);
   const [tok, setTok] = useState(0);
   const [calls, setCalls] = useState(0);
+  const [rated, setRated] = useState<number | null>(null);
 
   const push = useCallback((text: string, color?: string) => {
     setLog((l) => [...l, { key: l.length, text, color }]);
@@ -110,7 +112,7 @@ export default function App(props: AppProps) {
     } catch (err: any) {
       push(`Fatal: ${err?.message ?? err}`, "red");
     }
-    setPhase("done");
+    setPhase("rate");
   }, [goal, props, push]);
 
   useInput((input, key) => {
@@ -120,6 +122,20 @@ export default function App(props: AppProps) {
         setDraft(goal);
         setPhase("input");
       } else if (input === "q") exit();
+    } else if (phase === "rate") {
+      // Goal-achievement rating (0-9) feeds the per-model efficiency analytics.
+      if (/^[0-9]$/.test(input)) {
+        const score = parseInt(input, 10);
+        try {
+          setUserScore(props.sessionId, score);
+        } catch {
+          /* rating is best-effort */
+        }
+        setRated(score);
+        setPhase("done");
+      } else if (key.return || input === "q") {
+        setPhase("done"); // skip
+      }
     } else if (phase === "done") {
       if (input === "q" || key.return) exit();
     }
@@ -147,7 +163,7 @@ export default function App(props: AppProps) {
 
       {phase === "preview" && rec && <Preview rec={rec} />}
 
-      {(phase === "running" || phase === "done") && (
+      {(phase === "running" || phase === "rate" || phase === "done") && (
         <Box flexDirection="column" marginTop={1}>
           {log.slice(-18).map((l) => (
             <Text key={l.key} color={l.color as any}>
@@ -159,9 +175,21 @@ export default function App(props: AppProps) {
               <Spinner type="dots" /> working…
             </Text>
           )}
+          {phase === "rate" && (
+            <Text>
+              <Text color="green">
+                ✓ Done · {calls} calls · {tokens(tok)} tokens · {usd(cost)}
+              </Text>
+              {"\n"}
+              <Text color="cyan">How well was your goal achieved? </Text>
+              <Text color="yellow">[0-9]</Text>
+              <Text color="gray"> (9 = perfect · enter = skip) — feeds `poly analyze`</Text>
+            </Text>
+          )}
           {phase === "done" && (
             <Text color="green">
-              ✓ Done · {calls} calls · {tokens(tok)} tokens · {usd(cost)} — press q to quit
+              ✓ Done · {calls} calls · {tokens(tok)} tokens · {usd(cost)}
+              {rated != null ? ` · rated ${rated}/9` : ""} — press q to quit
             </Text>
           )}
         </Box>

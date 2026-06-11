@@ -1,0 +1,60 @@
+# Read queries for dashboards/apps. Heavy aggregation (AVG/GROUP BY) is best done
+# in SQL directly on Cloud SQL — see dataconnect/ANALYSIS.sql for ready-made queries.
+
+query SessionsByDate($since: Date!) @auth(level: USER) {
+  sessions(where: { date: { ge: $since } }, orderBy: { startedAt: DESC }) {
+    id
+    date
+    goal
+    objective
+    plannedSteps
+    completedSteps
+    failedSteps
+    autoScore
+    userScore
+    promptTokens
+    completionTokens
+    costUsd
+  }
+}
+
+query StepsForSession($sessionId: String!) @auth(level: USER) {
+  stepRuns(where: { sessionId: { eq: $sessionId } }, orderBy: { stepNo: ASC }) {
+    stepNo
+    taskType
+    skill
+    model
+    iterations
+    toolCalls
+    promptTokens
+    completionTokens
+    costUsd
+    finishedBy
+    success
+  }
+}
+
+query CallsByModel($model: String!, $since: Date!) @auth(level: USER) {
+  modelCalls(where: { model: { eq: $model }, date: { ge: $since } }, orderBy: { ts: DESC }) {
+    ts
+    date
+    command
+    taskType
+    promptTokens
+    completionTokens
+    costUsd
+  }
+}
+
+query CommandRuns($since: Date!) @auth(level: USER) {
+  commandRuns(where: { date: { ge: $since } }, orderBy: { ts: DESC }) {
+    ts
+    command
+    args
+    objective
+    promptTokens
+    completionTokens
+    costUsd
+    durationMs
+  }
+}

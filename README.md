@@ -93,8 +93,12 @@ poly usage                                # cost by date + model
 | `poly recommend <goal>` | Pre-run recommendation: cheapest / best-value / best-quality model combos + savings. |
 | `poly models` | Browse the catalog with pricing, tier, tool support. Filters: `--tier`, `--tools`, `--search`. |
 | `poly usage` | Recorded usage & cost grouped by **date + model**. `--today`, `--since`, `--sync`. |
-| `poly sync` | Push the local usage ledger to Firestore. |
-| `poly config show\|set\|firestore` | View/change settings. |
+| `poly analyze` | **Which approach reaches the goal with the fewest tokens** — best model per task type, objective × achievement, usage per command. |
+| `poly sync` | Push the analytics ledger to Firebase ([Data Connect SQL](dataconnect/) and/or Firestore). |
+| `poly config show\|set\|firestore\|dataconnect` | View/change settings. |
+
+After each `poly run`, rate the result 0–9 (one keypress) — your goal-achievement
+rating joins the auto score (completed/planned steps) to power `poly analyze`.
 
 ### Routing objectives
 

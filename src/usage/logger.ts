@@ -12,11 +12,12 @@ function providerOf(modelId: string): string {
   return modelId.split("/")[0] ?? "unknown";
 }
 
-/** Persist one model call's real usage/cost, keyed by date + model. */
+/** Persist one model call's real usage/cost, keyed by date + model (+ command). */
 export function logCompletion(
   result: CompletionResult,
   taskType: string,
-  sessionId: string
+  sessionId: string,
+  command = "run"
 ): UsageEntry {
   const now = new Date();
   const entry: UsageEntry = {
@@ -30,6 +31,7 @@ export function logCompletion(
     totalTokens: result.usage.totalTokens,
     costUsd: result.costUsd,
     sessionId,
+    command,
   };
   recordUsage(entry);
   return entry;

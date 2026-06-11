@@ -1,5 +1,5 @@
 import type { OpenRouterClient } from "../providers/openrouter.js";
-import type { ModelInfo } from "../providers/types.js";
+import type { CompletionResult, ModelInfo } from "../providers/types.js";
 import { ALL_TASK_TYPES, type Plan, type PlannedStep, type TaskType } from "./tasks.js";
 
 const PLAN_SYSTEM = `You are the planning stage of a coding agent. Break the user's request into a short, ordered list of concrete steps.
@@ -34,7 +34,8 @@ export function heuristicPlan(goal: string): Plan {
 export async function planRequest(
   goal: string,
   client: OpenRouterClient,
-  planModel: ModelInfo
+  planModel: ModelInfo,
+  onUsage?: (result: CompletionResult) => void
 ): Promise<Plan> {
   const result = await client.complete(
     {
@@ -48,6 +49,7 @@ export async function planRequest(
     },
     planModel.pricing
   );
+  onUsage?.(result);
   const parsed = extractPlan(result.content);
   if (!parsed) return heuristicPlan(goal);
   return { goal, steps: parsed };

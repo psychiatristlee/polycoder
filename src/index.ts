@@ -10,7 +10,11 @@ import { runLogin, ensureApiKey } from "./auth/onboarding.js";
 import { heuristicPlan, planRequest } from "./planner/planner.js";
 import { buildRecommendation, renderRecommendation } from "./recommend/recommend.js";
 import { renderUsageReport } from "./usage/report.js";
+import { renderAnalysis } from "./usage/analyze.js";
 import { syncUsage } from "./usage/firestoreSync.js";
+import { syncDataConnect } from "./usage/dataconnect.js";
+import { recordCommandRun, sessionUsageTotals } from "./usage/db.js";
+import { logCompletion } from "./usage/logger.js";
 import { route } from "./router/router.js";
 import type { RoutingObjective, RoutingPolicy } from "./router/policy.js";
 import { blendedPrice } from "./router/policy.js";
@@ -22,7 +26,7 @@ const program = new Command();
 program
   .name("poly")
   .description("Polymath — cost-optimized, multi-model TUI coding agent")
-  .version("0.1.0");
+  .version("0.2.0");
 
 function client(config: PolymathConfig): OpenRouterClient {
   return new OpenRouterClient({
@@ -40,6 +44,42 @@ function buildPolicy(config: PolymathConfig, opts: { objective?: string; maxCost
     maxCostPerCallUsd: Number.isFinite(maxCost as number) ? (maxCost as number) : undefined,
     pinned: config.pinned,
   };
+}
+
+function localDate(d = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Record one CLI command invocation in the analytics ledger (best-effort). */
+function trackCommand(opts: {
+  command: string;
+  startedAt: number;
+  sessionId?: string;
+  args?: string;
+  objective?: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  costUsd?: number;
+}): void {
+  try {
+    recordCommandRun({
+      sessionId: opts.sessionId,
+      ts: opts.startedAt,
+      date: localDate(new Date(opts.startedAt)),
+      command: opts.command,
+      args: opts.args?.slice(0, 300),
+      objective: opts.objective,
+      promptTokens: opts.promptTokens ?? 0,
+      completionTokens: opts.completionTokens ?? 0,
+      costUsd: opts.costUsd ?? 0,
+      durationMs: Date.now() - opts.startedAt,
+    });
+  } catch {
+    /* analytics must never break the CLI */
+  }
 }
 
 async function loadCatalog(config: PolymathConfig, refresh = false): Promise<ModelInfo[]> {
@@ -70,6 +110,7 @@ program
   .option("-x, --commands", "DANGER: let the model run arbitrary shell commands in --cwd", false)
   .option("-C, --cwd <dir>", "working directory", process.cwd())
   .action(async (goalParts: string[], opts) => {
+    const startedAt = Date.now();
     const config = loadConfig();
     const key = await ensureApiKey(config);
     if (!key) {
@@ -80,13 +121,14 @@ program
     const models = await loadCatalog(reloaded);
     const policy = buildPolicy(reloaded, opts);
     const goal = goalParts?.join(" ").trim() || undefined;
+    const sessionId = randomUUID();
 
     const instance = render(
       createElement(App, {
         client: client(reloaded),
         models,
         policy,
-        sessionId: randomUUID(),
+        sessionId,
         cwd: opts.cwd,
         allowWrite: !!opts.write,
         allowCommands: !!opts.commands,
@@ -95,6 +137,16 @@ program
       })
     );
     await instance.waitUntilExit();
+    // Attribute this command's real token usage from the per-call ledger.
+    const totals = sessionUsageTotals(sessionId);
+    trackCommand({
+      command: "run",
+      startedAt,
+      sessionId,
+      args: goal,
+      objective: policy.objective,
+      ...totals,
+    });
   });
 
 // ---- recommend -------------------------------------------------------------
@@ -105,9 +157,11 @@ program
   .option("--smart", "use an LLM to produce a tailored plan (costs a few cents)", false)
   .option("-o, --objective <name>", "highlight a specific objective")
   .action(async (goalParts: string[], opts) => {
+    const startedAt = Date.now();
     const config = loadConfig();
     const models = await loadCatalog(config);
     const goal = goalParts.join(" ");
+    const sessionId = randomUUID();
     let plan = heuristicPlan(goal);
     if (opts.smart) {
       const key = resolveApiKey(config);
@@ -117,7 +171,9 @@ program
         const planRoute = route("plan", models, buildPolicy(config, {}));
         if (planRoute) {
           try {
-            plan = await planRequest(goal, client(config), planRoute.model);
+            plan = await planRequest(goal, client(config), planRoute.model, (result) => {
+              logCompletion(result, "plan", sessionId, "recommend");
+            });
           } catch (e: any) {
             console.error(c.yellow(`Smart plan failed (${e?.message}); using heuristic.`));
           }
@@ -125,6 +181,8 @@ program
       }
     }
     console.log(renderRecommendation(buildRecommendation(plan, models)));
+    const totals = sessionUsageTotals(sessionId);
+    trackCommand({ command: "recommend", startedAt, sessionId, args: goal, objective: config.defaultObjective, ...totals });
   });
 
 // ---- models ----------------------------------------------------------------
@@ -186,14 +244,44 @@ program
     }
   });
 
+// ---- analyze ----------------------------------------------------------------
+program
+  .command("analyze")
+  .description("Which approach reaches the goal with the FEWEST tokens — per model, task, objective, command")
+  .option("--since <date>", "YYYY-MM-DD inclusive")
+  .option("--until <date>", "YYYY-MM-DD inclusive")
+  .action(async (opts) => {
+    console.log(renderAnalysis({ since: opts.since, until: opts.until }));
+  });
+
 // ---- sync ------------------------------------------------------------------
 program
   .command("sync")
-  .description("Push unsynced usage rows to Firestore (mathology-b8e3d)")
+  .description("Push the local analytics ledger to Firebase (Data Connect SQL and/or Firestore)")
   .action(async () => {
     const config = loadConfig();
-    const res = await syncUsage(config);
-    console.log(res.synced > 0 ? c.green(res.message) : c.yellow(res.message));
+    let pushed = false;
+    if (config.dataconnect.enabled) {
+      pushed = true;
+      try {
+        const res = await syncDataConnect(config);
+        console.log(res.sessions + res.steps + res.commands + res.calls > 0 ? c.green(res.message) : c.dim(res.message));
+      } catch (e: any) {
+        console.error(c.red(`Data Connect sync failed: ${e?.message ?? e}`));
+      }
+    }
+    if (config.firestore.enabled) {
+      pushed = true;
+      const res = await syncUsage(config);
+      console.log(res.synced > 0 ? c.green(res.message) : c.dim(res.message));
+    }
+    if (!pushed) {
+      console.log(
+        c.yellow(
+          "No sync target enabled. Use `poly config dataconnect on` (SQL) or `poly config firestore on`."
+        )
+      );
+    }
   });
 
 // ---- config ----------------------------------------------------------------
@@ -248,6 +336,25 @@ cfg
     config.firestore.enabled = /^on|true|1$/i.test(state);
     saveConfig(config);
     console.log(c.green(`Firestore sync ${config.firestore.enabled ? "enabled" : "disabled"}.`));
+  });
+cfg
+  .command("dataconnect")
+  .description("Enable/disable Firebase Data Connect (SQL) sync: on | off [--location <loc>] [--service <id>]")
+  .argument("<state>")
+  .option("--location <loc>", "Data Connect location (default us-east4)")
+  .option("--service <id>", "Data Connect service id (default polymath)")
+  .action((state: string, opts) => {
+    const config = loadConfig();
+    config.dataconnect.enabled = /^on|true|1$/i.test(state);
+    if (opts.location) config.dataconnect.location = opts.location;
+    if (opts.service) config.dataconnect.serviceId = opts.service;
+    saveConfig(config);
+    console.log(
+      c.green(
+        `Data Connect sync ${config.dataconnect.enabled ? "enabled" : "disabled"} ` +
+          `(service ${config.dataconnect.serviceId} @ ${config.dataconnect.location}).`
+      )
+    );
   });
 
 program.parseAsync().catch((err) => {

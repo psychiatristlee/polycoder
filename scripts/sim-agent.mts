@@ -29,3 +29,21 @@ const res = await runAgent(
   }
 );
 console.log(`DONE: ${res.calls} calls, ${res.totalTokens} tokens, $${res.totalCostUsd.toFixed(6)}`);
+
+// Simulate the post-run goal-achievement rating + verify the analytics pipeline.
+const { setUserScore, recordCommandRun, sessionUsageTotals } = await import("../src/usage/db.js");
+setUserScore("sim-1", 8);
+const totals = sessionUsageTotals("sim-1");
+recordCommandRun({
+  sessionId: "sim-1",
+  ts: Date.now(),
+  date: new Date().toISOString().slice(0, 10),
+  command: "run",
+  args: "create a hello.js that prints a greeting",
+  objective: "value",
+  ...totals,
+  durationMs: 1234,
+});
+const { renderAnalysis } = await import("../src/usage/analyze.js");
+console.log("\n===== poly analyze output =====");
+console.log(renderAnalysis());

@@ -17,6 +17,12 @@ export interface PolymathConfig {
     projectId: string;
     collection: string;
   };
+  /** Firebase Data Connect (Cloud SQL) analytics sink. */
+  dataconnect: {
+    enabled: boolean;
+    location: string;
+    serviceId: string;
+  };
   /** Pinned model overrides per task type (id), takes precedence over the router. */
   pinned?: Record<string, string>;
 }
@@ -30,6 +36,11 @@ export const DEFAULT_CONFIG: PolymathConfig = {
     projectId: "mathology-b8e3d",
     collection: "polymath_usage",
   },
+  dataconnect: {
+    enabled: false,
+    location: "us-east4",
+    serviceId: "polymath",
+  },
 };
 
 export function loadConfig(): PolymathConfig {
@@ -41,6 +52,7 @@ export function loadConfig(): PolymathConfig {
       ...DEFAULT_CONFIG,
       ...raw,
       firestore: { ...DEFAULT_CONFIG.firestore, ...(raw.firestore ?? {}) },
+      dataconnect: { ...DEFAULT_CONFIG.dataconnect, ...(raw.dataconnect ?? {}) },
     };
   } catch {
     return { ...DEFAULT_CONFIG };
