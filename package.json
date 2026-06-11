@@ -1,6 +1,6 @@
 {
   "name": "polymath-agent",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Polymath — a cost-optimized, multi-model TUI coding agent. Decomposes work into typed tasks, routes each task to the cheapest capable model via OpenRouter, and logs real usage/cost by date + model.",
   "type": "module",
   "bin": {

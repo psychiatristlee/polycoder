@@ -5,6 +5,8 @@ import { route } from "../router/router.js";
 import { planRequest, heuristicPlan } from "../planner/planner.js";
 import type { Plan, PlannedStep } from "../planner/tasks.js";
 import { TOOL_SCHEMAS, executeTool, type ToolContext } from "./tools.js";
+import { extractJson } from "../planner/planner.js";
+import type { ToolCall } from "../providers/types.js";
 import { logCompletion } from "../usage/logger.js";
 import {
   startSession,
@@ -37,6 +39,33 @@ export interface AgentDeps {
 }
 
 const MAX_ITERS_PER_STEP = 6;
+
+const KNOWN_TOOLS = new Set(TOOL_SCHEMAS.map((t) => t.function.name));
+
+/**
+ * Fallback for models without native tool calling (common with small local LLMs):
+ * they often answer with the tool call as plain JSON text, e.g.
+ *   {"name": "write_file", "arguments": {"path": "...", "content": "..."}}
+ * Parse that into a synthetic ToolCall so the agent still acts on it.
+ */
+export function parseTextToolCall(content: string): ToolCall | null {
+  if (!content) return null;
+  const json = extractJson(content);
+  if (!json) return null;
+  try {
+    const obj = JSON.parse(json) as any;
+    const name = obj?.name ?? obj?.tool ?? obj?.function?.name;
+    if (typeof name !== "string" || !KNOWN_TOOLS.has(name)) return null;
+    const args = obj.arguments ?? obj.parameters ?? obj.function?.arguments ?? {};
+    return {
+      id: `textcall_${name}`,
+      type: "function",
+      function: { name, arguments: typeof args === "string" ? args : JSON.stringify(args) },
+    };
+  } catch {
+    return null;
+  }
+}
 
 export async function runAgent(
   goal: string,
@@ -179,7 +208,29 @@ export async function runAgent(
           continue; // let the model react to tool results
         }
 
-        // No tool calls -> the assistant's text is the step result.
+        // No native tool calls — small/local models often write the call as JSON text.
+        const textCall = useTools ? parseTextToolCall(result.content) : null;
+        if (textCall) {
+          stepToolCalls++;
+          emit({ type: "tool-call", name: textCall.function.name, args: textCall.function.arguments });
+          const outcome = executeTool(textCall.function.name, textCall.function.arguments, toolCtx);
+          emit({ type: "tool-result", name: textCall.function.name, result: outcome.result });
+          if (outcome.finishSummary != null) {
+            summary = outcome.finishSummary;
+            finishedBy = "finish-tool";
+            break;
+          }
+          // The model never made an official tool_call, so feed the result back as a
+          // user turn (maximum compatibility with strict OpenAI-style servers).
+          messages.push({ role: "assistant", content: result.content });
+          messages.push({
+            role: "user",
+            content: `Tool ${textCall.function.name} returned:\n${outcome.result}\nContinue with this step. When the objective is met, reply with ONLY {"name":"finish","arguments":{"summary":"<one line>"}}.`,
+          });
+          continue;
+        }
+
+        // Plain text -> the assistant's text is the step result.
         summary = result.content || summary;
         if (summary) finishedBy = "text";
         break;
@@ -247,7 +298,8 @@ function stepSystemPrompt(
     ? `\n\nWhat previous steps accomplished:\n${priorSummaries.join("\n")}`
     : "";
   const toolNote = useTools
-    ? `\nYou may use the provided tools (read_file, write_file, list_dir, run_command). Call the \`finish\` tool with a one-line summary when this step's objective is met.`
+    ? `\nYou may use the provided tools (read_file, write_file, list_dir, run_command). Call the \`finish\` tool with a one-line summary when this step's objective is met.
+If you cannot call tools natively, reply with ONLY one JSON object per turn, no prose: {"name":"<tool>","arguments":{...}}`
     : `\nReturn a concise result for this step. Do not ask the user questions.`;
   return `You are the "${step.type}" stage of an autonomous coding agent.
 Overall goal: ${goal}

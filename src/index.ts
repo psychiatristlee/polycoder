@@ -28,7 +28,7 @@ const program = new Command();
 program
   .name("poly")
   .description("Polymath — cost-optimized, multi-model TUI coding agent")
-  .version("0.3.0");
+  .version("0.3.1");
 
 function client(config: PolymathConfig): OpenRouterClient {
   return new OpenRouterClient({
