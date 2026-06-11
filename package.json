@@ -1,6 +1,6 @@
 {
   "name": "polymath-agent",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Polymath — a cost-optimized, multi-model TUI coding agent. Decomposes work into typed tasks, routes each task to the cheapest capable model via OpenRouter, and logs real usage/cost by date + model.",
   "type": "module",
   "bin": {
@@ -18,7 +18,8 @@
     "dev": "tsx src/index.ts",
     "start": "node dist/cli.js",
     "prepare": "node esbuild.config.mjs",
-    "prepublishOnly": "npm run typecheck && npm run build"
+    "prepublishOnly": "npm run typecheck && npm run build",
+    "postinstall": "node -e \"process.stdout.isTTY && console.log('\\n\\u2728 Polymath ready. Run: poly setup   (connect models / optionally install a local LLM)\\n')\" || true"
   },
   "keywords": [
     "ai",

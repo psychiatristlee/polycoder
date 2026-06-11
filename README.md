@@ -42,7 +42,25 @@ beats a pricey generalist at edits. Polymath assigns the cheapest model that gen
 
 ```bash
 npm install -g polymath-agent
-poly login        # guided OpenRouter key setup
+poly setup        # guided: optionally install a local LLM (Ollama) + connect models
+```
+
+`poly setup` asks whether to install a local LLM, or skip the prompt with a flag:
+
+```bash
+poly setup --local                       # install Ollama + pull a model (RAM-aware default)
+poly setup --local -m qwen2.5-coder:7b   # choose the model
+poly setup --no-local                    # cloud only — just connect an OpenRouter key
+poly setup --local -y                    # non-interactive (accept defaults / auto-install)
+```
+
+Keep everything current with `poly update` (the CLI via npm, the Ollama runtime, and
+your local models) — add `--check` to only report what's available:
+
+```bash
+poly update            # update CLI + Ollama + re-pull local models
+poly update --check    # report-only
+poly update --self     # just the CLI   (also --ollama, --models)
 ```
 
 **From source** (no npm publish needed):
@@ -88,6 +106,8 @@ poly usage                                # cost by date + model
 
 | Command | What it does |
 |---|---|
+| `poly setup` | First-run: optionally install a local LLM (Ollama) + connect models. `--local` / `--no-local` / `-m <model>` / `-y`. |
+| `poly update` | Update the CLI (npm), the Ollama runtime, and local models. `--check`, `--self`, `--ollama`, `--models`. |
 | `poly login` | Connect/replace your OpenRouter API key (Claude-Code-style onboarding). |
 | `poly run [goal]` | Launch the interactive agent. Shows the recommended routing, then executes. |
 | `poly recommend <goal>` | Pre-run recommendation: cheapest / best-value / best-quality model combos + savings. |

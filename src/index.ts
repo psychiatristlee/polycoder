@@ -21,14 +21,16 @@ import { route } from "./router/router.js";
 import type { RoutingObjective, RoutingPolicy } from "./router/policy.js";
 import { blendedPrice } from "./router/policy.js";
 import { table, usd, perMTok, tierColor, c } from "./util/format.js";
+import { runSetup, runUpdate } from "./setup/commands.js";
 import App from "./tui/App.tsx";
 
+export const VERSION = "0.5.0";
 const program = new Command();
 
 program
   .name("poly")
   .description("Polymath — cost-optimized, multi-model TUI coding agent")
-  .version("0.4.0");
+  .version(VERSION);
 
 function client(config: PolymathConfig): OpenRouterClient {
   return new OpenRouterClient({
@@ -117,6 +119,33 @@ async function loadCatalog(config: PolymathConfig, refresh = false): Promise<Mod
   }
   return models;
 }
+
+// ---- setup ------------------------------------------------------------------
+program
+  .command("setup")
+  .description("First-run setup: optionally install a local LLM (Ollama) and connect models")
+  .option("--local", "install a local LLM (Ollama) — skips the prompt")
+  .option("--no-local", "skip the local LLM — skips the prompt")
+  .option("-m, --model <id>", "local model to pull (e.g. qwen2.5-coder:7b)")
+  .option("-y, --yes", "accept defaults / auto-install without prompts", false)
+  .action(async (opts) => {
+    // Tri-state from argv so "neither flag" → interactive prompt.
+    const argv = process.argv;
+    const local = argv.includes("--local") ? true : argv.includes("--no-local") ? false : undefined;
+    await runSetup({ local, model: opts.model, yes: !!opts.yes });
+  });
+
+// ---- update -----------------------------------------------------------------
+program
+  .command("update")
+  .description("Update Polymath, the Ollama runtime, and local models")
+  .option("--check", "report available updates without installing", false)
+  .option("--self", "only the Polymath CLI", false)
+  .option("--ollama", "only the Ollama runtime", false)
+  .option("--models", "only the local models", false)
+  .action(async (opts) => {
+    await runUpdate(VERSION, { check: !!opts.check, self: !!opts.self, ollama: !!opts.ollama, models: !!opts.models });
+  });
 
 // ---- login -----------------------------------------------------------------
 program

@@ -42,6 +42,9 @@ src/
 │   └── recommend.ts    # build + render pre-run recommendations (strategies, value-by-tier)
 ├── auth/
 │   └── onboarding.ts   # interactive OpenRouter key setup/validation (Claude-Code-style)
+├── setup/
+│   ├── localllm.ts     # detect/install Ollama (brew/curl/winget), start server, pull models
+│   └── commands.ts     # `poly setup` (--local/--no-local) + `poly update` (--check)
 ├── tui/
 │   └── App.tsx         # Ink UI: input -> recommendation preview -> run -> live cost
 ├── config/             # config dir resolution + JSON store (key stored chmod 600)
