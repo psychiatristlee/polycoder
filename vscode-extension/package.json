@@ -12,7 +12,7 @@
   "keywords": ["ai", "agent", "openrouter", "llm", "cost"],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/psychiatristlee/mathology.git",
+    "url": "git+https://github.com/psychiatristlee/polyagent.git",
     "directory": "vscode-extension"
   },
   "main": "./dist/extension.js",

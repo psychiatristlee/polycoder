@@ -1,6 +1,6 @@
 # Polymath for VS Code
 
-Run the [Polymath](https://github.com/psychiatristlee/mathology) cost-optimized
+Run the [Polymath](https://github.com/psychiatristlee/polyagent) cost-optimized
 multi-model coding agent from inside VS Code.
 
 This extension is a thin launcher: it drives the `poly` CLI in an integrated
@@ -9,7 +9,7 @@ right in your editor against the open workspace.
 
 ## Requirements
 
-- The Polymath CLI on your PATH: `npm install -g polymath-agent`
+- The Polymath CLI on your PATH: `npm install -g polyagent`
   (the extension offers to install it for you if it's missing).
 - Node.js ≥ 22.5.
 

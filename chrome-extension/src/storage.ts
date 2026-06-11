@@ -10,7 +10,7 @@ export interface ChromeConfig {
 
 const DEFAULT: ChromeConfig = {
   objective: "value",
-  referer: "https://github.com/psychiatristlee/mathology",
+  referer: "https://github.com/psychiatristlee/polyagent",
   title: "Polymath",
 };
 
