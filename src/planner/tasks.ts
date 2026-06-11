@@ -13,6 +13,7 @@ export type TaskType =
   | "command" // run shell commands (needs tools)
   | "review" // critique code for correctness/bugs
   | "reason" // hard algorithmic / architectural reasoning
+  | "verify" // measure the result against acceptance criteria (tool-driven)
   | "explain" // explain results to the user
   | "summarize" // condense long content
   | "chat"; // simple conversational reply
@@ -35,6 +36,8 @@ export const TASK_SPECS: Record<TaskType, TaskSpec> = {
   command: { type: "command", minTier: "cheap", needsTools: true, label: "Run command" },
   review: { type: "review", minTier: "frontier", needsTools: false, label: "Review / critique" },
   reason: { type: "reason", minTier: "frontier", needsTools: false, label: "Hard reasoning" },
+  // The verify gate inspects files / runs tests — it MUST have tools.
+  verify: { type: "verify", minTier: "frontier", needsTools: true, label: "Verify result" },
   explain: { type: "explain", minTier: "cheap", needsTools: false, label: "Explain" },
   summarize: { type: "summarize", minTier: "cheap", needsTools: false, label: "Summarize" },
   chat: { type: "chat", minTier: "cheap", needsTools: false, label: "Chat" },
@@ -51,7 +54,15 @@ export interface PlannedStep {
   estCompletionTokens: number;
 }
 
+export type GoalType = "feature" | "bugfix" | "refactor" | "test" | "docs" | "chore" | "other";
+
+export const ALL_GOAL_TYPES: GoalType[] = ["feature", "bugfix", "refactor", "test", "docs", "chore", "other"];
+
 export interface Plan {
   goal: string;
   steps: PlannedStep[];
+  /** Classified goal type — drives the statistical "optimal starting model" learning. */
+  goalType: GoalType;
+  /** Measurable acceptance criteria; the verify gate checks the result against these. */
+  criteria: string[];
 }

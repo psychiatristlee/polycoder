@@ -1,7 +1,8 @@
 import type { ModelInfo } from "../providers/types.js";
 import { TASK_SPECS, type TaskType } from "../planner/tasks.js";
-import { blendedPrice, tierAtLeast, type RoutingPolicy } from "./policy.js";
+import { blendedPrice, tierAtLeast, tierRank, type RoutingPolicy } from "./policy.js";
 import { taskStrength, TASK_MIN_STRENGTH, TASK_SKILL } from "../models/strengths.js";
+import type { Tier } from "../providers/types.js";
 import { findModel } from "../models/parse.js";
 
 export interface TokenEstimate {
@@ -45,9 +46,15 @@ export function candidatesFor(
 ): ModelInfo[] {
   const spec = TASK_SPECS[taskType];
   const strengthFloor = TASK_MIN_STRENGTH[taskType] ?? 0;
+  // Effective floor is the higher of the task's own floor and any escalation floor.
+  const minTier: Tier =
+    policy.tierFloor && tierRank(policy.tierFloor) > tierRank(spec.minTier) ? policy.tierFloor : spec.minTier;
   return models.filter((m) => {
     if (m.id === "openrouter/auto") return false;
-    const covers = tierAtLeast(m.tier, spec.minTier) || taskStrength(m, taskType) >= strengthFloor;
+    // The strength-floor bypass only applies when not escalating past the task's own floor.
+    const covers =
+      tierAtLeast(m.tier, minTier) ||
+      (!policy.tierFloor && taskStrength(m, taskType) >= strengthFloor);
     if (!covers) return false;
     if (spec.needsTools && !m.capabilities.tools) return false;
     if (policy.maxCostPerCallUsd != null && est) {
@@ -114,4 +121,30 @@ export function route(
       ? `proven ${Math.round(proven)}% fewer tokens on ${taskType} (playbook)`
       : `best ${skill}-per-dollar`;
   return { model: chosen, reason, estCostUsd: projectCost(chosen, est) };
+}
+
+/**
+ * Like route(), but never returns null: if nothing meets the constraints (e.g. a
+ * local-only catalog asked for a frontier `review`), fall back to the single
+ * strongest available model for the task. Used for steps and the verify gate.
+ */
+export function routeOrBest(
+  taskType: TaskType,
+  models: ModelInfo[],
+  policy: RoutingPolicy,
+  est: TokenEstimate = { promptTokens: 4000, completionTokens: 1000 }
+): RouteResult | null {
+  const r = route(taskType, models, policy, est);
+  if (r) return r;
+  const spec = TASK_SPECS[taskType];
+  const usable = models.filter(
+    (m) => m.id !== "openrouter/auto" && (!spec.needsTools || m.capabilities.tools)
+  );
+  if (!usable.length) return null;
+  const byStrength = (a: ModelInfo, b: ModelInfo) => taskStrength(b, taskType) - taskStrength(a, taskType);
+  // Prefer a tool-capable model (the verify gate and tool tasks depend on it); only
+  // fall back to a tool-less model when no tool-capable one exists.
+  const withTools = usable.filter((m) => m.capabilities.tools).sort(byStrength);
+  const best = (withTools.length ? withTools : [...usable].sort(byStrength))[0];
+  return { model: best, reason: `best available for ${TASK_SKILL[taskType]} (fallback)`, estCostUsd: projectCost(best, est) };
 }

@@ -100,6 +100,37 @@ poly usage                                # cost by date + model
 After each `poly run`, rate the result 0–9 (one keypress) — your goal-achievement
 rating joins the auto score (completed/planned steps) to power `poly analyze`.
 
+### Outcome-driven loop (verify → escalate → repeat)
+
+`poly run` doesn't stop at "code written" — it measures the result and keeps going
+until the goal is actually met:
+
+```
+command → plan + acceptance criteria → code (cheapest model)
+        → VERIFY result against criteria (inspects files, runs tests)
+        → if unmet: ESCALATE (higher tier, more tokens, cost cap lifted) → fix → re-verify
+        → repeat until all criteria pass (or --max-attempts)
+```
+
+The cheapest model gets first crack; only the criteria it *fails* trigger a pricier
+model — so you pay for frontier capability exactly when (and only when) it's needed.
+
+```bash
+poly run -w -x "add an add(a,b) to calc.js and make the tests pass"
+poly run --no-verify "..."        # single pass, no verify/escalate
+poly run --max-attempts 5 "..."   # try harder before giving up
+```
+
+After each run you'll see `✓ goal met · 2 attempts` (or `⚠ goal not fully met`).
+
+### Statistical model optimization (learned starting tier)
+
+Every attempt is recorded with its goal type, starting tier, tokens, and pass/fail.
+`poly analyze` then shows, per goal type, **which starting model reaches the goal
+with the fewest total tokens** — and once there's enough evidence (≥3 verified
+sessions), `poly run` **auto-starts at that tier**, skipping cheap attempts for goal
+types that historically need a stronger model from the start.
+
 ### The efficiency playbook (learned routing)
 
 Everything is captured locally (SQLite). `poly analyze` distills it into a **playbook**

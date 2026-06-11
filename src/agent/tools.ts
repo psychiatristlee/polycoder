@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
-import type { ToolSchema } from "../providers/types.js";
+import type { ToolSchema, ToolCall } from "../providers/types.js";
+import { extractJson } from "../planner/planner.js";
 
 export const TOOL_SCHEMAS: ToolSchema[] = [
   {
@@ -67,6 +68,38 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     },
   },
 ];
+
+export const KNOWN_TOOLS = new Set(TOOL_SCHEMAS.map((t) => t.function.name));
+
+/** Read-only tool subset for the verify gate (no write_file). */
+export const READONLY_TOOL_SCHEMAS: ToolSchema[] = TOOL_SCHEMAS.filter((t) =>
+  ["read_file", "list_dir", "run_command"].includes(t.function.name)
+);
+
+/**
+ * Fallback for models without native tool calling (common with small local LLMs):
+ * they often answer with the tool call as plain JSON text, e.g.
+ *   {"name": "write_file", "arguments": {"path": "...", "content": "..."}}
+ * Parse that into a synthetic ToolCall so the agent still acts on it.
+ */
+export function parseTextToolCall(content: string): ToolCall | null {
+  if (!content) return null;
+  const json = extractJson(content);
+  if (!json) return null;
+  try {
+    const obj = JSON.parse(json) as any;
+    const name = obj?.name ?? obj?.tool ?? obj?.function?.name;
+    if (typeof name !== "string" || !KNOWN_TOOLS.has(name)) return null;
+    const args = obj.arguments ?? obj.parameters ?? obj.function?.arguments ?? {};
+    return {
+      id: `textcall_${name}`,
+      type: "function",
+      function: { name, arguments: typeof args === "string" ? args : JSON.stringify(args) },
+    };
+  } catch {
+    return null;
+  }
+}
 
 export interface ToolContext {
   cwd: string;

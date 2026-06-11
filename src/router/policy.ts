@@ -19,6 +19,42 @@ export interface RoutingPolicy {
    * Models PROVEN notably efficient on a task get preferred under the `value` objective.
    */
   empirical?: Record<string, number>;
+  /** Minimum tier to consider (escalation raises this on verification failure). */
+  tierFloor?: Tier;
+}
+
+/**
+ * Escalation ladder: when the verify gate fails, climb a rung — a higher tier floor,
+ * a stronger objective, more tokens per call, and the cost cap lifted. This is the
+ * "spend more / use a pricier model until the goal is met" behavior.
+ */
+export interface EscalationRung {
+  tierFloor?: Tier;
+  objective: RoutingObjective;
+  maxTokens: number;
+  maxIters: number;
+  liftCostCap: boolean;
+  label: string;
+}
+
+export const ESCALATION_LADDER: EscalationRung[] = [
+  { objective: "value", maxTokens: 2000, maxIters: 6, liftCostCap: false, label: "value · cheapest-capable" },
+  { tierFloor: "standard", objective: "value", maxTokens: 4000, maxIters: 8, liftCostCap: true, label: "standard+ · more tokens" },
+  { tierFloor: "frontier", objective: "quality", maxTokens: 8000, maxIters: 10, liftCostCap: true, label: "frontier · strongest" },
+];
+
+export function rungForTier(tier: Tier): number {
+  return ESCALATION_LADDER.findIndex((r) => r.tierFloor === tier || (!r.tierFloor && tier === "cheap"));
+}
+
+/** Apply an escalation rung on top of a base policy. */
+export function applyRung(base: RoutingPolicy, rung: EscalationRung): RoutingPolicy {
+  return {
+    ...base,
+    objective: rung.objective,
+    tierFloor: rung.tierFloor,
+    maxCostPerCallUsd: rung.liftCostCap ? undefined : base.maxCostPerCallUsd,
+  };
 }
 
 const TIER_RANK: Record<Tier, number> = { cheap: 0, standard: 1, frontier: 2 };

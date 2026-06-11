@@ -28,7 +28,7 @@ const program = new Command();
 program
   .name("poly")
   .description("Polymath — cost-optimized, multi-model TUI coding agent")
-  .version("0.3.1");
+  .version("0.4.0");
 
 function client(config: PolymathConfig): OpenRouterClient {
   return new OpenRouterClient({
@@ -136,6 +136,8 @@ program
   .option("-w, --write", "allow the agent to write files (confined to --cwd)", false)
   .option("-x, --commands", "DANGER: let the model run arbitrary shell commands in --cwd", false)
   .option("-C, --cwd <dir>", "working directory", process.cwd())
+  .option("--no-verify", "skip the verify-and-escalate loop (single pass)")
+  .option("--max-attempts <n>", "max code→verify→escalate attempts until goals met", "3")
   .action(async (goalParts: string[], opts) => {
     const startedAt = Date.now();
     const config = loadConfig();
@@ -163,6 +165,8 @@ program
         allowWrite: !!opts.write,
         allowCommands: !!opts.commands,
         objectiveLabel: policy.objective,
+        verify: opts.verify !== false,
+        maxAttempts: Math.max(1, parseInt(opts.maxAttempts, 10) || 3),
         initialGoal: goal,
       })
     );

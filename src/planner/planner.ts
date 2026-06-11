@@ -1,6 +1,13 @@
 import type { OpenRouterClient } from "../providers/openrouter.js";
 import type { CompletionResult, ModelInfo } from "../providers/types.js";
-import { ALL_TASK_TYPES, type Plan, type PlannedStep, type TaskType } from "./tasks.js";
+import {
+  ALL_TASK_TYPES,
+  ALL_GOAL_TYPES,
+  type GoalType,
+  type Plan,
+  type PlannedStep,
+  type TaskType,
+} from "./tasks.js";
 
 const PLAN_SYSTEM = `You are the planning stage of a coding agent. Break the user's request into a short, ordered list of concrete steps.
 Each step must be classified by type, chosen from EXACTLY this set:
@@ -15,9 +22,22 @@ Each step must be classified by type, chosen from EXACTLY this set:
   summarize - condense long content
   chat      - a simple conversational reply
 
+Also classify the request's goalType (one of: feature, bugfix, refactor, test, docs, chore, other) and write 2-5 MEASURABLE acceptance criteria — concrete, checkable conditions that mean the goal is fully achieved (e.g. "hello.js exists and prints the greeting", "npm test passes", "the function handles empty input").
+
 Return ONLY minified JSON of the form:
-{"steps":[{"type":"<type>","description":"...","estPromptTokens":<int>,"estCompletionTokens":<int>}]}
+{"goalType":"<type>","criteria":["...","..."],"steps":[{"type":"<type>","description":"...","estPromptTokens":<int>,"estCompletionTokens":<int>}]}
 Use 3-8 steps for non-trivial work, fewer for simple requests. Estimate tokens realistically (prompts often 2000-15000, completions 200-3000).`;
+
+export function classifyGoalType(goal: string): GoalType {
+  const g = goal.toLowerCase();
+  if (/\b(fix|bug|broken|error|crash|regression|fails?)\b/.test(g)) return "bugfix";
+  if (/\b(refactor|rename|clean ?up|restructure|extract|simplif)/.test(g)) return "refactor";
+  if (/\b(test|spec|coverage|unit test|e2e)\b/.test(g)) return "test";
+  if (/\b(docs?|readme|comment|documentation)\b/.test(g)) return "docs";
+  if (/\b(bump|upgrade|dependency|deps|config|chore|lint|format)\b/.test(g)) return "chore";
+  if (/\b(add|create|implement|build|feature|support|new)\b/.test(g)) return "feature";
+  return "other";
+}
 
 export function heuristicPlan(goal: string): Plan {
   // Deterministic fallback used when no model is available (e.g. offline cost estimates).
@@ -28,7 +48,12 @@ export function heuristicPlan(goal: string): Plan {
     { id: 4, type: "edit", description: "Implement the change", estPromptTokens: 9000, estCompletionTokens: 1500 },
     { id: 5, type: "review", description: "Review the change", estPromptTokens: 6000, estCompletionTokens: 800 },
   ];
-  return { goal, steps };
+  return {
+    goal,
+    steps,
+    goalType: classifyGoalType(goal),
+    criteria: ["The stated goal is fully implemented and works", "No obvious errors or omissions remain"],
+  };
 }
 
 export async function planRequest(
@@ -52,14 +77,14 @@ export async function planRequest(
   onUsage?.(result);
   const parsed = extractPlan(result.content);
   if (!parsed) return heuristicPlan(goal);
-  return { goal, steps: parsed };
+  return { goal, ...parsed };
 }
 
-function extractPlan(text: string): PlannedStep[] | null {
+function extractPlan(text: string): Omit<Plan, "goal"> | null {
   const json = extractJson(text);
   if (!json) return null;
   try {
-    const obj = JSON.parse(json) as { steps?: any[] };
+    const obj = JSON.parse(json) as { steps?: any[]; goalType?: string; criteria?: any[] };
     if (!Array.isArray(obj.steps)) return null;
     const steps: PlannedStep[] = obj.steps.map((s, i) => ({
       id: i + 1,
@@ -68,7 +93,14 @@ function extractPlan(text: string): PlannedStep[] | null {
       estPromptTokens: clampInt(s.estPromptTokens, 500, 60000, 4000),
       estCompletionTokens: clampInt(s.estCompletionTokens, 100, 8000, 800),
     }));
-    return steps.length ? steps : null;
+    if (!steps.length) return null;
+    const goalType = (ALL_GOAL_TYPES as string[]).includes(String(obj.goalType))
+      ? (obj.goalType as GoalType)
+      : "other";
+    const criteria = Array.isArray(obj.criteria)
+      ? obj.criteria.map((x) => String(x).slice(0, 200)).filter(Boolean).slice(0, 6)
+      : [];
+    return { steps, goalType, criteria: criteria.length ? criteria : ["The stated goal is fully achieved"] };
   } catch {
     return null;
   }

@@ -58,6 +58,7 @@ export const TASK_SKILL: Record<TaskType, Skill> = {
   command: "speed",
   review: "reasoning",
   reason: "reasoning",
+  verify: "reasoning",
   explain: "general",
   summarize: "speed",
   chat: "speed",
@@ -97,6 +98,7 @@ export const TASK_MIN_STRENGTH: Partial<Record<TaskType, number>> = {
   edit: 1.4,
   review: 1.5,
   reason: 1.5,
+  verify: 1.4,
   plan: 1.2,
 };
 

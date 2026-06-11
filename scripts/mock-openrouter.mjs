@@ -40,6 +40,8 @@ function usageFor(promptTokens, completionTokens, modelId) {
   return { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens, cost };
 }
 
+let verifyCalls = 0; // stateful: first verify fails (to exercise escalation), then passes
+
 /** Decide the assistant's reply given the request — emulates a competent model. */
 function decide(body) {
   const sys = body.messages?.[0]?.content ?? "";
@@ -50,6 +52,8 @@ function decide(body) {
   if (/planning stage of a coding agent/i.test(sys)) {
     return {
       content: JSON.stringify({
+        goalType: "feature",
+        criteria: ["hello.js exists", "hello.js prints a greeting when run"],
         steps: [
           { type: "read", description: "Inspect the working directory layout", estPromptTokens: 1500, estCompletionTokens: 200 },
           { type: "edit", description: "Create hello.js that prints a greeting with `console.log('hi')` syntax {}", estPromptTokens: 2500, estCompletionTokens: 400 },
@@ -57,6 +61,30 @@ function decide(body) {
       }),
       tool_calls: [],
     };
+  }
+
+  // Verify stage — return a structured verdict. Fail the first time, pass after.
+  if (/You are the VERIFY stage/i.test(sys)) {
+    verifyCalls++;
+    const pass = verifyCalls >= 2;
+    return {
+      content: JSON.stringify({
+        results: [
+          { criterion: "hello.js exists", met: true, reason: "file present" },
+          { criterion: "hello.js prints a greeting when run", met: pass, reason: pass ? "prints greeting" : "greeting text missing" },
+        ],
+        feedback: pass ? "all good" : "Make hello.js console.log a greeting string.",
+      }),
+      tool_calls: [],
+    };
+  }
+
+  // Fix stage — write the corrected file, then finish.
+  if (/You are the FIX stage/i.test(sys)) {
+    if (!hasToolResult) {
+      return { content: "", tool_calls: [{ name: "write_file", arguments: JSON.stringify({ path: "hello.js", content: "console.log('Hello, world!');\n" }) }] };
+    }
+    return { content: "", tool_calls: [{ name: "finish", arguments: JSON.stringify({ summary: "Fixed greeting output" }) }] };
   }
 
   if (hasTools) {

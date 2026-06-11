@@ -6,11 +6,13 @@ import {
   modelTaskEfficiency,
   objectiveEfficiency,
   commandUsage,
+  goalTierStats,
+  optimalStartTier,
   type ReportFilter,
   type ModelTaskEfficiency,
 } from "./db.js";
 import { distillInsights, renderPlaybook } from "./insights.js";
-import { table, usd, tokens, c } from "../util/format.js";
+import { table, usd, tokens, tierColor, c } from "../util/format.js";
 
 const MIN_SUCCESS_RATE = 0.5; // a model must succeed at least half the time to be "best"
 
@@ -112,6 +114,40 @@ export function renderAnalysis(filter: ReportFilter = {}): string {
           )
         );
       }
+    }
+    out.push("");
+  }
+
+  // ---- 2.5) Optimal STARTING model per goal type (the escalation learning) ---
+  const tierStats = goalTierStats();
+  if (tierStats.length) {
+    out.push(c.bold("Optimal starting model per goal type") + c.dim("  (pass rate vs total tokens to reach the goal)"));
+    out.push(
+      table(
+        ["Goal type", "Start tier", "Sessions", "Pass rate", "Avg total tok", "Avg attempts"],
+        tierStats.map((s) => [
+          s.goalType,
+          tierColor(s.startTier),
+          String(s.sessions),
+          `${Math.round(s.passRate * 100)}%`,
+          tokens(Math.round(s.avgTotalTokens)),
+          s.avgAttempts.toFixed(1),
+        ])
+      )
+    );
+    const goalTypes = [...new Set(tierStats.map((s) => s.goalType))];
+    const learned = goalTypes
+      .map((g) => ({ g, tier: optimalStartTier(g) }))
+      .filter((x) => x.tier);
+    if (learned.length) {
+      out.push(
+        c.green(
+          "→ Learned starts (auto-applied on `poly run`): " +
+            learned.map((x) => `${x.g}→${x.tier}`).join(", ")
+        )
+      );
+    } else {
+      out.push(c.dim("→ Not enough evidence yet to auto-pick a starting tier (needs ≥3 verified sessions per goal type)."));
     }
     out.push("");
   }

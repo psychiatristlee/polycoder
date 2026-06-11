@@ -110,6 +110,27 @@ function getDb(): DatabaseSync {
     );
     CREATE INDEX IF NOT EXISTS idx_cmd_date ON command_runs(date);
 
+    -- One row per verify-and-escalate attempt within a session. Powers the
+    -- "optimal starting model per goal type" statistical learning.
+    CREATE TABLE IF NOT EXISTS attempts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      attempt_no INTEGER NOT NULL,
+      goal_type TEXT NOT NULL,
+      tier_floor TEXT,
+      objective TEXT NOT NULL,
+      prompt_tokens INTEGER NOT NULL,
+      completion_tokens INTEGER NOT NULL,
+      cost_usd REAL NOT NULL,
+      criteria_total INTEGER NOT NULL,
+      criteria_met INTEGER NOT NULL,
+      passed INTEGER NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      synced INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_attempts_session ON attempts(session_id);
+    CREATE INDEX IF NOT EXISTS idx_attempts_goal ON attempts(goal_type, tier_floor);
+
     -- Distilled efficiency insights: ONLY the notably cost-efficient approaches.
     -- This is what syncs to the cloud by default (raw logs stay local).
     CREATE TABLE IF NOT EXISTS insights (
@@ -132,6 +153,16 @@ function getDb(): DatabaseSync {
   if (!cols.some((c) => c.name === "command")) {
     db.exec(`ALTER TABLE usage_log ADD COLUMN command TEXT NOT NULL DEFAULT 'run'`);
   }
+  // Migration: outcome-loop columns on sessions (v0.4.0).
+  const conn = db;
+  const scols = conn.prepare(`PRAGMA table_info(sessions)`).all() as any[];
+  const addSession = (name: string, decl: string) => {
+    if (!scols.some((c) => c.name === name)) conn.exec(`ALTER TABLE sessions ADD COLUMN ${name} ${decl}`);
+  };
+  addSession("goal_type", "TEXT NOT NULL DEFAULT 'other'");
+  addSession("start_tier", "TEXT");
+  addSession("attempts", "INTEGER NOT NULL DEFAULT 1");
+  addSession("final_passed", "INTEGER"); // 1 met all criteria, 0 did not, null = no verify
   return db;
 }
 
@@ -289,23 +320,36 @@ export interface CommandRunRow {
   durationMs: number;
 }
 
-export function startSession(s: Omit<SessionRow, "completedSteps" | "failedSteps" | "autoScore" | "userScore" | "promptTokens" | "completionTokens" | "costUsd" | "durationMs">): void {
+export function startSession(s: {
+  id: string;
+  ts: number;
+  date: string;
+  goal: string;
+  command: string;
+  objective: string;
+  plannedSteps: number;
+  goalType: string;
+  startTier?: string;
+}): void {
   getDb()
     .prepare(
-      `INSERT OR REPLACE INTO sessions (id, ts, date, goal, command, objective, planned_steps)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT OR REPLACE INTO sessions (id, ts, date, goal, command, objective, planned_steps, goal_type, start_tier)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(s.id, s.ts, s.date, s.goal, s.command, s.objective, s.plannedSteps);
+    .run(s.id, s.ts, s.date, s.goal, s.command, s.objective, s.plannedSteps, s.goalType, s.startTier ?? null);
 }
 
 export function finishSession(
   id: string,
-  u: Pick<SessionRow, "plannedSteps" | "completedSteps" | "failedSteps" | "autoScore" | "promptTokens" | "completionTokens" | "costUsd" | "durationMs">
+  u: Pick<SessionRow, "plannedSteps" | "completedSteps" | "failedSteps" | "autoScore" | "promptTokens" | "completionTokens" | "costUsd" | "durationMs"> & {
+    attempts?: number;
+    finalPassed?: boolean | null;
+  }
 ): void {
   getDb()
     .prepare(
       `UPDATE sessions SET planned_steps=?, completed_steps=?, failed_steps=?, auto_score=?,
-         prompt_tokens=?, completion_tokens=?, cost_usd=?, duration_ms=? WHERE id=?`
+         prompt_tokens=?, completion_tokens=?, cost_usd=?, duration_ms=?, attempts=?, final_passed=? WHERE id=?`
     )
     .run(
       u.plannedSteps,
@@ -316,8 +360,96 @@ export function finishSession(
       u.completionTokens,
       u.costUsd,
       u.durationMs,
+      u.attempts ?? 1,
+      u.finalPassed == null ? null : u.finalPassed ? 1 : 0,
       id
     );
+}
+
+export interface AttemptRow {
+  sessionId: string;
+  attemptNo: number;
+  goalType: string;
+  tierFloor: string | null;
+  objective: string;
+  promptTokens: number;
+  completionTokens: number;
+  costUsd: number;
+  criteriaTotal: number;
+  criteriaMet: number;
+  passed: boolean;
+  durationMs: number;
+}
+
+export function recordAttempt(a: AttemptRow): void {
+  getDb()
+    .prepare(
+      `INSERT INTO attempts
+        (session_id, attempt_no, goal_type, tier_floor, objective, prompt_tokens, completion_tokens,
+         cost_usd, criteria_total, criteria_met, passed, duration_ms)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      a.sessionId,
+      a.attemptNo,
+      a.goalType,
+      a.tierFloor,
+      a.objective,
+      a.promptTokens,
+      a.completionTokens,
+      a.costUsd,
+      a.criteriaTotal,
+      a.criteriaMet,
+      a.passed ? 1 : 0,
+      a.durationMs
+    );
+}
+
+export interface GoalTierStat {
+  goalType: string;
+  startTier: string;
+  sessions: number;
+  passRate: number; // 0..1
+  avgTotalTokens: number; // tokens to reach the outcome (whole session)
+  avgAttempts: number;
+}
+
+/** Per (goalType, starting tier): pass rate and avg total tokens to outcome. */
+export function goalTierStats(): GoalTierStat[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT goal_type AS goalType, COALESCE(start_tier,'cheap') AS startTier,
+              COUNT(*) AS sessions,
+              AVG(CASE WHEN final_passed=1 THEN 1.0 ELSE 0.0 END) AS passRate,
+              AVG(prompt_tokens + completion_tokens) AS avgTotalTokens,
+              AVG(attempts) AS avgAttempts
+       FROM sessions
+       WHERE final_passed IS NOT NULL
+       GROUP BY goal_type, startTier
+       ORDER BY goal_type, avgTotalTokens ASC`
+    )
+    .all() as any[];
+  return rows.map((r) => ({
+    goalType: String(r.goalType),
+    startTier: String(r.startTier),
+    sessions: Number(r.sessions),
+    passRate: Number(r.passRate ?? 0),
+    avgTotalTokens: Number(r.avgTotalTokens ?? 0),
+    avgAttempts: Number(r.avgAttempts ?? 0),
+  }));
+}
+
+/**
+ * Learned starting tier per goal type: among tiers with enough samples and a high
+ * pass rate, pick the one that reaches the outcome with the fewest total tokens.
+ * Returns null until there's enough evidence (≥3 sessions, ≥60% pass).
+ */
+export function optimalStartTier(goalType: string, minSessions = 3): string | null {
+  const stats = goalTierStats().filter(
+    (s) => s.goalType === goalType && s.sessions >= minSessions && s.passRate >= 0.6
+  );
+  if (!stats.length) return null;
+  return stats.sort((a, b) => a.avgTotalTokens - b.avgTotalTokens)[0].startTier;
 }
 
 /** User-rated goal achievement, 0..9 (asked in the TUI after a run). */

@@ -35,3 +35,7 @@ firebase-debug.*.log
 
 # Claude Code local state
 .claude/
+
+# scratch simulation drivers
+scripts/sim-*.mts
+scripts/check-*.mts

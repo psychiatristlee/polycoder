@@ -20,6 +20,8 @@ export interface AppProps {
   allowWrite: boolean;
   allowCommands: boolean;
   objectiveLabel: string;
+  verify: boolean;
+  maxAttempts: number;
   initialGoal?: string;
 }
 
@@ -42,6 +44,8 @@ export default function App(props: AppProps) {
   const [tok, setTok] = useState(0);
   const [calls, setCalls] = useState(0);
   const [rated, setRated] = useState<number | null>(null);
+  const [passed, setPassed] = useState<boolean | null>(null);
+  const [attempts, setAttempts] = useState(0);
 
   const push = useCallback((text: string, color?: string) => {
     setLog((l) => [...l, { key: l.length, text, color }]);
@@ -64,6 +68,8 @@ export default function App(props: AppProps) {
       cwd: props.cwd,
       allowWrite: props.allowWrite,
       allowCommands: props.allowCommands,
+      verify: props.verify,
+      maxAttempts: props.maxAttempts,
     };
     let textBuf = "";
     const flush = () => {
@@ -74,6 +80,25 @@ export default function App(props: AppProps) {
       switch (e.type) {
         case "plan":
           push(`📋 Plan (${e.plan.steps.length} steps) · planner: ${e.planModel}`, "cyan");
+          break;
+        case "criteria":
+          push(`🎯 ${e.goalType} · ${e.criteria.length} criteria · start: ${e.startTier}${e.learned ? " (learned)" : ""}`, "cyan");
+          e.criteria.forEach((cr, i) => push(`   ${i + 1}. ${cr}`, "gray"));
+          break;
+        case "verify-start":
+          flush();
+          push(`🔍 Verify (attempt ${e.attempt}) → ${e.model}`, "cyan");
+          break;
+        case "verdict":
+          flush();
+          push(
+            `${e.allMet ? "✅" : "❌"} ${e.metCount}/${e.total} criteria met` +
+              (e.unmet.length ? " — unmet: " + e.unmet.map((u) => u.criterion).join("; ").slice(0, 100) : ""),
+            e.allMet ? "green" : "red"
+          );
+          break;
+        case "escalate":
+          push(`⏫ Escalate → ${e.toRung}  (${e.reason})`, "magenta");
           break;
         case "step-start":
           flush();
@@ -104,6 +129,8 @@ export default function App(props: AppProps) {
           break;
         case "done":
           flush();
+          setPassed(e.passed);
+          setAttempts(e.attempts);
           break;
       }
     };
@@ -177,8 +204,9 @@ export default function App(props: AppProps) {
           )}
           {phase === "rate" && (
             <Text>
-              <Text color="green">
-                ✓ Done · {calls} calls · {tokens(tok)} tokens · {usd(cost)}
+              <Text color={passed === false ? "yellow" : "green"}>
+                {passed === false ? "⚠ goal not fully met" : "✓ goal met"} · {attempts} attempt(s) · {calls} calls ·{" "}
+                {tokens(tok)} tokens · {usd(cost)}
               </Text>
               {"\n"}
               <Text color="cyan">How well was your goal achieved? </Text>
