@@ -23,6 +23,14 @@ export interface PolymathConfig {
     location: string;
     serviceId: string;
   };
+  /**
+   * Local LLM server (Ollama / LM Studio / llama.cpp — any OpenAI-compatible API).
+   * Models appear in the catalog as `local/<name>` with $0 pricing and join routing.
+   */
+  local: {
+    enabled: boolean;
+    baseUrl: string;
+  };
   /** Pinned model overrides per task type (id), takes precedence over the router. */
   pinned?: Record<string, string>;
 }
@@ -41,6 +49,10 @@ export const DEFAULT_CONFIG: PolymathConfig = {
     location: "us-east4",
     serviceId: "polymath",
   },
+  local: {
+    enabled: false,
+    baseUrl: "http://localhost:11434/v1", // Ollama default; LM Studio: http://localhost:1234/v1
+  },
 };
 
 export function loadConfig(): PolymathConfig {
@@ -53,6 +65,7 @@ export function loadConfig(): PolymathConfig {
       ...raw,
       firestore: { ...DEFAULT_CONFIG.firestore, ...(raw.firestore ?? {}) },
       dataconnect: { ...DEFAULT_CONFIG.dataconnect, ...(raw.dataconnect ?? {}) },
+      local: { ...DEFAULT_CONFIG.local, ...(raw.local ?? {}) },
     };
   } catch {
     return { ...DEFAULT_CONFIG };

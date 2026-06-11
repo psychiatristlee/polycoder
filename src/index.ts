@@ -5,6 +5,7 @@ import { render } from "ink";
 import { loadConfig, saveConfig, resolveApiKey, type PolymathConfig } from "./config/store.js";
 import { OpenRouterClient } from "./providers/openrouter.js";
 import { getModels } from "./models/registry.js";
+import { getLocalModels } from "./models/local.js";
 import type { ModelInfo } from "./providers/types.js";
 import { runLogin, ensureApiKey } from "./auth/onboarding.js";
 import { heuristicPlan, planRequest } from "./planner/planner.js";
@@ -13,7 +14,8 @@ import { renderUsageReport } from "./usage/report.js";
 import { renderAnalysis } from "./usage/analyze.js";
 import { syncUsage } from "./usage/firestoreSync.js";
 import { syncDataConnect } from "./usage/dataconnect.js";
-import { recordCommandRun, sessionUsageTotals } from "./usage/db.js";
+import { recordCommandRun, sessionUsageTotals, listInsights } from "./usage/db.js";
+import { insightBoostMap } from "./usage/insights.js";
 import { logCompletion } from "./usage/logger.js";
 import { route } from "./router/router.js";
 import type { RoutingObjective, RoutingPolicy } from "./router/policy.js";
@@ -26,23 +28,33 @@ const program = new Command();
 program
   .name("poly")
   .description("Polymath — cost-optimized, multi-model TUI coding agent")
-  .version("0.2.0");
+  .version("0.3.0");
 
 function client(config: PolymathConfig): OpenRouterClient {
   return new OpenRouterClient({
     apiKey: resolveApiKey(config),
     referer: config.referer,
     title: config.title,
+    localBaseUrl: config.local.enabled ? config.local.baseUrl : undefined,
   });
 }
 
 function buildPolicy(config: PolymathConfig, opts: { objective?: string; maxCost?: string }): RoutingPolicy {
   const objective = (opts.objective as RoutingObjective) || config.defaultObjective;
   const maxCost = opts.maxCost != null ? parseFloat(opts.maxCost) : config.maxCostPerCallUsd;
+  // Learned routing: prefer approaches the local playbook has PROVEN token-efficient.
+  let empirical: Record<string, number> | undefined;
+  try {
+    empirical = insightBoostMap(listInsights());
+    if (!Object.keys(empirical).length) empirical = undefined;
+  } catch {
+    empirical = undefined;
+  }
   return {
     objective,
     maxCostPerCallUsd: Number.isFinite(maxCost as number) ? (maxCost as number) : undefined,
     pinned: config.pinned,
+    empirical,
   };
 }
 
@@ -83,9 +95,24 @@ function trackCommand(opts: {
 }
 
 async function loadCatalog(config: PolymathConfig, refresh = false): Promise<ModelInfo[]> {
-  const models = await getModels(client(config), { refresh });
+  const cl = client(config);
+  const hasKey = !!resolveApiKey(config);
+  let models: ModelInfo[] = [];
+  try {
+    models = await getModels(cl, { refresh });
+  } catch (e) {
+    if (!config.local.enabled) throw e; // local-only setups tolerate OpenRouter being unreachable
+  }
+  if (config.local.enabled) {
+    const local = await getLocalModels(cl);
+    if (!local.length) {
+      console.error(c.yellow(`Local server (${config.local.baseUrl}) returned no models — is it running?`));
+    }
+    // Keyless mode: without an OpenRouter key only local models are actually callable.
+    models = hasKey ? [...local, ...models] : local;
+  }
   if (!models.length) {
-    console.error(c.red("Could not load the model catalog. Check your connection."));
+    console.error(c.red("No models available. Check your connection, or `poly config local on` with a running Ollama/LM Studio."));
     process.exit(1);
   }
   return models;
@@ -112,10 +139,13 @@ program
   .action(async (goalParts: string[], opts) => {
     const startedAt = Date.now();
     const config = loadConfig();
-    const key = await ensureApiKey(config);
-    if (!key) {
-      console.error(c.red("No API key — cannot run. Try `poly login`."));
-      process.exit(1);
+    // Local-only mode needs no API key at all.
+    if (!config.local.enabled || resolveApiKey(config)) {
+      const key = await ensureApiKey(config);
+      if (!key && !config.local.enabled) {
+        console.error(c.red("No API key — cannot run. Try `poly login`, or `poly config local on` for a local LLM."));
+        process.exit(1);
+      }
     }
     const reloaded = loadConfig();
     const models = await loadCatalog(reloaded);
@@ -257,22 +287,24 @@ program
 // ---- sync ------------------------------------------------------------------
 program
   .command("sync")
-  .description("Push the local analytics ledger to Firebase (Data Connect SQL and/or Firestore)")
-  .action(async () => {
+  .description("Push DISTILLED efficiency insights to Firebase (raw logs stay local unless --raw)")
+  .option("--raw", "also push the full raw ledger (sessions/steps/calls/commands)", false)
+  .action(async (opts) => {
     const config = loadConfig();
     let pushed = false;
     if (config.dataconnect.enabled) {
       pushed = true;
       try {
-        const res = await syncDataConnect(config);
-        console.log(res.sessions + res.steps + res.commands + res.calls > 0 ? c.green(res.message) : c.dim(res.message));
+        const res = await syncDataConnect(config, { raw: !!opts.raw });
+        const n = res.insights + res.sessions + res.steps + res.commands + res.calls;
+        console.log(n > 0 ? c.green(res.message) : c.dim(res.message));
       } catch (e: any) {
         console.error(c.red(`Data Connect sync failed: ${e?.message ?? e}`));
       }
     }
     if (config.firestore.enabled) {
       pushed = true;
-      const res = await syncUsage(config);
+      const res = await syncUsage(config, { raw: !!opts.raw });
       console.log(res.synced > 0 ? c.green(res.message) : c.dim(res.message));
     }
     if (!pushed) {
@@ -336,6 +368,23 @@ cfg
     config.firestore.enabled = /^on|true|1$/i.test(state);
     saveConfig(config);
     console.log(c.green(`Firestore sync ${config.firestore.enabled ? "enabled" : "disabled"}.`));
+  });
+cfg
+  .command("local")
+  .description("Enable/disable a local LLM server (Ollama/LM Studio): on | off [--base <url>]")
+  .argument("<state>")
+  .option("--base <url>", "OpenAI-compatible base URL (default http://localhost:11434/v1)")
+  .action((state: string, opts) => {
+    const config = loadConfig();
+    config.local.enabled = /^on|true|1$/i.test(state);
+    if (opts.base) config.local.baseUrl = String(opts.base).replace(/\/$/, "");
+    saveConfig(config);
+    console.log(
+      c.green(
+        `Local LLM ${config.local.enabled ? "enabled" : "disabled"} (${config.local.baseUrl}). ` +
+          `Models appear as local/<name> with $0 cost.`
+      )
+    );
   });
 cfg
   .command("dataconnect")

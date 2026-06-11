@@ -93,12 +93,37 @@ poly usage                                # cost by date + model
 | `poly recommend <goal>` | Pre-run recommendation: cheapest / best-value / best-quality model combos + savings. |
 | `poly models` | Browse the catalog with pricing, tier, tool support. Filters: `--tier`, `--tools`, `--search`. |
 | `poly usage` | Recorded usage & cost grouped by **date + model**. `--today`, `--since`, `--sync`. |
-| `poly analyze` | **Which approach reaches the goal with the fewest tokens** — best model per task type, objective × achievement, usage per command. |
-| `poly sync` | Push the analytics ledger to Firebase ([Data Connect SQL](dataconnect/) and/or Firestore). |
-| `poly config show\|set\|firestore\|dataconnect` | View/change settings. |
+| `poly analyze` | **Which approach reaches the goal with the fewest tokens** — efficiency playbook, best model per task type, objective × achievement, usage per command. |
+| `poly sync` | Push **distilled efficiency insights** to Firebase ([Data Connect SQL](dataconnect/) / Firestore). Raw logs stay local unless `--raw`. |
+| `poly config show\|set\|firestore\|dataconnect\|local` | View/change settings. |
 
 After each `poly run`, rate the result 0–9 (one keypress) — your goal-achievement
 rating joins the auto score (completed/planned steps) to power `poly analyze`.
+
+### The efficiency playbook (learned routing)
+
+Everything is captured locally (SQLite). `poly analyze` distills it into a **playbook**
+of *notably* efficient approaches — a (task, model) pair qualifies only with ≥3
+successful runs, ≥70% success, and **≥20% fewer tokens than the median** of its
+competitors. The playbook then **boosts routing**: proven-efficient models get
+preferred under the `value` objective (`reason: proven 54% fewer tokens on edit`).
+`poly sync` uploads *only* the playbook by default — your goals and raw logs never
+leave the machine unless you pass `--raw`.
+
+### Local LLMs (Ollama / LM Studio) — $0 routing
+
+```bash
+ollama serve                                # or LM Studio's local server
+poly config local on                        # default base: http://localhost:11434/v1
+poly config local on --base http://localhost:1234/v1   # LM Studio
+poly models -s local/                       # local models join the catalog at $0
+poly run "..."                              # cheapest objective → local wins what it can
+```
+
+Local models appear as `local/<name>`, cost $0, and need **no API key** — with
+`local on` and no OpenRouter key, Polymath runs fully offline on your machine.
+Tokens are still tracked, so the playbook learns when your local model is the
+most efficient approach.
 
 ### Routing objectives
 

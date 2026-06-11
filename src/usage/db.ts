@@ -109,6 +109,23 @@ function getDb(): DatabaseSync {
       synced INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_cmd_date ON command_runs(date);
+
+    -- Distilled efficiency insights: ONLY the notably cost-efficient approaches.
+    -- This is what syncs to the cloud by default (raw logs stay local).
+    CREATE TABLE IF NOT EXISTS insights (
+      id TEXT PRIMARY KEY,            -- "<task_type>__<model>"
+      computed_at INTEGER NOT NULL,
+      task_type TEXT NOT NULL,
+      model TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      samples INTEGER NOT NULL,       -- successful steps observed
+      success_rate REAL NOT NULL,
+      avg_tokens REAL NOT NULL,       -- per successful step
+      baseline_tokens REAL NOT NULL,  -- median across qualified competitors
+      savings_pct REAL NOT NULL,      -- vs baseline (the "유독" margin)
+      avg_cost_usd REAL NOT NULL,
+      synced INTEGER NOT NULL DEFAULT 0
+    );
   `);
   // Migration: usage_log.command (per-call command attribution), added after v0.1.0.
   const cols = db.prepare(`PRAGMA table_info(usage_log)`).all() as any[];
@@ -551,8 +568,89 @@ export function unsyncedCommandRuns(): (CommandRunRow & { id: number })[] {
   }));
 }
 
-export function markTableSynced(table: "sessions" | "step_runs" | "command_runs", ids: (number | string)[]): void {
+export function markTableSynced(
+  table: "sessions" | "step_runs" | "command_runs" | "insights",
+  ids: (number | string)[]
+): void {
   if (!ids.length) return;
-  const stmt = getDb().prepare(`UPDATE ${table} SET synced=1 WHERE ${table === "sessions" ? "id" : "id"}=?`);
+  const stmt = getDb().prepare(`UPDATE ${table} SET synced=1 WHERE id=?`);
   for (const id of ids) stmt.run(id);
+}
+
+// ---- insights (the distilled, sync-worthy efficiency patterns) --------------
+
+export interface InsightRow {
+  id: string;
+  computedAt: number;
+  taskType: string;
+  model: string;
+  provider: string;
+  samples: number;
+  successRate: number;
+  avgTokens: number;
+  baselineTokens: number;
+  savingsPct: number;
+  avgCostUsd: number;
+}
+
+/** Upsert an insight; resets synced so updated evidence re-syncs. */
+export function upsertInsight(i: InsightRow): void {
+  getDb()
+    .prepare(
+      `INSERT INTO insights (id, computed_at, task_type, model, provider, samples, success_rate,
+         avg_tokens, baseline_tokens, savings_pct, avg_cost_usd, synced)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+       ON CONFLICT(id) DO UPDATE SET
+         computed_at=excluded.computed_at, samples=excluded.samples,
+         success_rate=excluded.success_rate, avg_tokens=excluded.avg_tokens,
+         baseline_tokens=excluded.baseline_tokens, savings_pct=excluded.savings_pct,
+         avg_cost_usd=excluded.avg_cost_usd, synced=0`
+    )
+    .run(
+      i.id,
+      i.computedAt,
+      i.taskType,
+      i.model,
+      i.provider,
+      i.samples,
+      i.successRate,
+      i.avgTokens,
+      i.baselineTokens,
+      i.savingsPct,
+      i.avgCostUsd
+    );
+}
+
+/** Remove insights that no longer hold after re-distillation. */
+export function deleteInsightsExcept(validIds: string[]): void {
+  const all = getDb().prepare(`SELECT id FROM insights`).all() as any[];
+  const keep = new Set(validIds);
+  const del = getDb().prepare(`DELETE FROM insights WHERE id=?`);
+  for (const r of all) if (!keep.has(String(r.id))) del.run(String(r.id));
+}
+
+export function listInsights(): InsightRow[] {
+  const rows = getDb().prepare(`SELECT * FROM insights ORDER BY savings_pct DESC`).all() as any[];
+  return rows.map(mapInsight);
+}
+
+export function unsyncedInsights(): InsightRow[] {
+  const rows = getDb().prepare(`SELECT * FROM insights WHERE synced=0`).all() as any[];
+  return rows.map(mapInsight);
+}
+
+function mapInsight(r: any): InsightRow {
+  return {
+    id: String(r.id),
+    computedAt: Number(r.computed_at),
+    taskType: String(r.task_type),
+    model: String(r.model),
+    provider: String(r.provider),
+    samples: Number(r.samples),
+    successRate: Number(r.success_rate),
+    avgTokens: Number(r.avg_tokens),
+    baselineTokens: Number(r.baseline_tokens),
+    savingsPct: Number(r.savings_pct),
+    avgCostUsd: Number(r.avg_cost_usd),
+  };
 }

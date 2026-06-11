@@ -7,11 +7,14 @@ import {
   unsyncedStepRuns,
   unsyncedCommandRuns,
   unsyncedRows,
+  unsyncedInsights,
   markSynced,
   markTableSynced,
 } from "./db.js";
+import { distillInsights } from "./insights.js";
 
 export interface DataConnectSyncResult {
+  insights: number;
   sessions: number;
   steps: number;
   commands: number;
@@ -70,15 +73,68 @@ async function executeGraphql(
 
 const iso = (ms: number) => new Date(ms).toISOString();
 
-export async function syncDataConnect(config: PolymathConfig): Promise<DataConnectSyncResult> {
+/**
+ * Default: distill locally and push ONLY the notably efficient insights (compact,
+ * no goal text, no raw logs). Pass {raw: true} to also push the full ledger.
+ */
+export async function syncDataConnect(
+  config: PolymathConfig,
+  opts: { raw?: boolean } = {}
+): Promise<DataConnectSyncResult> {
   const dc = config.dataconnect;
   if (!dc?.enabled) {
-    return { sessions: 0, steps: 0, commands: 0, calls: 0, message: "Data Connect sync is disabled (enable with `poly config dataconnect on`)." };
+    return { insights: 0, sessions: 0, steps: 0, commands: 0, calls: 0, message: "Data Connect sync is disabled (enable with `poly config dataconnect on`)." };
   }
   const projectId = config.firestore.projectId;
   const token = await adminAccessToken(projectId);
   const cfg = { projectId, location: dc.location, serviceId: dc.serviceId };
 
+  // 0) Re-distill from the latest evidence, then push insight upserts.
+  distillInsights();
+  const insights = unsyncedInsights();
+  for (const i of insights) {
+    await executeGraphql(
+      cfg,
+      token,
+      `mutation UpsertInsight($id: String!, $computedAt: Timestamp!, $taskType: String!,
+         $model: String!, $provider: String!, $samples: Int!, $successRate: Float!,
+         $avgTokens: Float!, $baselineTokens: Float!, $savingsPct: Float!, $avgCostUsd: Float!) {
+         insight_upsert(data: {
+           id: $id, computedAt: $computedAt, taskType: $taskType, model: $model,
+           provider: $provider, samples: $samples, successRate: $successRate,
+           avgTokens: $avgTokens, baselineTokens: $baselineTokens,
+           savingsPct: $savingsPct, avgCostUsd: $avgCostUsd
+         })
+       }`,
+      {
+        id: i.id,
+        computedAt: iso(i.computedAt),
+        taskType: i.taskType,
+        model: i.model,
+        provider: i.provider,
+        samples: i.samples,
+        successRate: i.successRate,
+        avgTokens: i.avgTokens,
+        baselineTokens: i.baselineTokens,
+        savingsPct: i.savingsPct,
+        avgCostUsd: i.avgCostUsd,
+      }
+    );
+  }
+  markTableSynced("insights", insights.map((i) => i.id));
+
+  if (!opts.raw) {
+    return {
+      insights: insights.length,
+      sessions: 0,
+      steps: 0,
+      commands: 0,
+      calls: 0,
+      message: `Synced ${insights.length} efficiency insight(s) to Data Connect (${cfg.serviceId}@${cfg.location}). Raw logs stayed local — use \`poly sync --raw\` to push everything.`,
+    };
+  }
+
+  // --raw: push the full ledger too.
   // 1) Sessions first (FK parent). Upsert so later user_score updates propagate.
   const sessions = unsyncedSessions();
   for (const s of sessions) {
@@ -219,10 +275,11 @@ export async function syncDataConnect(config: PolymathConfig): Promise<DataConne
   markSynced(calls.map((c) => c.id));
 
   return {
+    insights: insights.length,
     sessions: sessions.length,
     steps: steps.length,
     commands: commands.length,
     calls: calls.length,
-    message: `Synced ${sessions.length} sessions, ${steps.length} steps, ${commands.length} commands, ${calls.length} calls to Data Connect (${cfg.serviceId}@${cfg.location}).`,
+    message: `Synced ${insights.length} insights + raw: ${sessions.length} sessions, ${steps.length} steps, ${commands.length} commands, ${calls.length} calls (${cfg.serviceId}@${cfg.location}).`,
   };
 }

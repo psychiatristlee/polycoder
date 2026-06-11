@@ -23,8 +23,13 @@ export function projectCost(m: ModelInfo, est: TokenEstimate): number {
 }
 
 /** Strength-per-dollar for a specific task — the core "performance/cost" metric. */
-export function taskValue(m: ModelInfo, taskType: TaskType): number {
-  return taskStrength(m, taskType) / Math.max(blendedPrice(m), 0.01);
+export function taskValue(m: ModelInfo, taskType: TaskType, empirical?: Record<string, number>): number {
+  const base = taskStrength(m, taskType) / Math.max(blendedPrice(m), 0.01);
+  // Learned routing: a model PROVEN notably token-efficient on this task (from the
+  // local playbook) gets boosted proportionally to its measured savings, capped 2×.
+  const savings = empirical?.[`${taskType}:${m.id}`];
+  const boost = savings ? 1 + Math.min(savings, 100) / 100 : 1;
+  return base * boost;
 }
 
 /**
@@ -68,8 +73,11 @@ function rank(models: ModelInfo[], policy: RoutingPolicy, taskType: TaskType): M
       break;
     case "value":
     default:
-      // Best strength-per-dollar for THIS task — the cheapest model that covers it.
-      sorted.sort((a, b) => taskValue(b, taskType) - taskValue(a, taskType));
+      // Best strength-per-dollar for THIS task — the cheapest model that covers it,
+      // with empirically-proven-efficient models (playbook) preferred.
+      sorted.sort(
+        (a, b) => taskValue(b, taskType, policy.empirical) - taskValue(a, taskType, policy.empirical)
+      );
       break;
   }
   return sorted;
@@ -96,11 +104,14 @@ export function route(
   const ranked = rank(cands, policy, taskType);
   const chosen = ranked[0];
   const skill = TASK_SKILL[taskType];
+  const proven = policy.empirical?.[`${taskType}:${chosen.id}`];
   const reason =
     policy.objective === "cheapest"
       ? `cheapest model that covers ${skill}`
       : policy.objective === "quality"
       ? `strongest at ${skill}`
+      : proven
+      ? `proven ${Math.round(proven)}% fewer tokens on ${taskType} (playbook)`
       : `best ${skill}-per-dollar`;
   return { model: chosen, reason, estCostUsd: projectCost(chosen, est) };
 }

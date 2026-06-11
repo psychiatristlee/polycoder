@@ -15,7 +15,11 @@ export interface OpenRouterOptions {
   apiKey?: string;
   referer?: string;
   title?: string;
+  /** OpenAI-compatible local server (Ollama / LM Studio). Models prefixed `local/` route here. */
+  localBaseUrl?: string;
 }
+
+export const LOCAL_PREFIX = "local/";
 
 export class OpenRouterError extends Error {
   status?: number;
@@ -30,11 +34,13 @@ export class OpenRouterClient {
   private apiKey?: string;
   private referer: string;
   private title: string;
+  private localBaseUrl?: string;
 
   constructor(opts: OpenRouterOptions = {}) {
     this.apiKey = opts.apiKey;
     this.referer = opts.referer ?? "https://github.com/polymath-agent";
     this.title = opts.title ?? "Polymath";
+    this.localBaseUrl = opts.localBaseUrl?.replace(/\/$/, "");
   }
 
   private headers(json = true): Record<string, string> {
@@ -45,6 +51,27 @@ export class OpenRouterClient {
     };
     if (json) h["Content-Type"] = "application/json";
     return h;
+  }
+
+  /** Resolve where a model's request goes: the local server for `local/*`, else OpenRouter. */
+  private target(modelId: string): { base: string; model: string; isLocal: boolean } {
+    if (this.localBaseUrl && modelId.startsWith(LOCAL_PREFIX)) {
+      return { base: this.localBaseUrl, model: modelId.slice(LOCAL_PREFIX.length), isLocal: true };
+    }
+    return { base: BASE, model: modelId, isLocal: false };
+  }
+
+  private requireKeyFor(isLocal: boolean): void {
+    if (!isLocal && !this.apiKey) throw new OpenRouterError("No API key set. Run `poly login`.");
+  }
+
+  /** List models from the local OpenAI-compatible server (Ollama / LM Studio). */
+  async listLocalRawModels(): Promise<any[]> {
+    if (!this.localBaseUrl) return [];
+    const res = await fetch(`${this.localBaseUrl}/models`);
+    if (!res.ok) throw new OpenRouterError(`Local server: failed to list models (${res.status})`, res.status);
+    const json = (await res.json()) as { data?: any[] };
+    return json.data ?? [];
   }
 
   /** Raw /models payload (no auth required). */
@@ -68,25 +95,29 @@ export class OpenRouterClient {
     return { label: d.label, usage: d.usage, limit: d.limit };
   }
 
-  private buildBody(req: CompletionRequest, stream: boolean) {
+  private buildBody(req: CompletionRequest, stream: boolean, modelOverride: string, isLocal: boolean) {
     return {
-      model: req.model,
+      model: modelOverride,
       messages: req.messages.map(serializeMessage),
       ...(req.tools && req.tools.length ? { tools: req.tools, tool_choice: "auto" } : {}),
       temperature: req.temperature ?? 0.2,
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
       stream,
-      usage: { include: true },
+      // OpenRouter-specific accounting param; local servers may reject unknown fields.
+      ...(isLocal ? {} : { usage: { include: true } }),
+      // OpenAI-compat way to get token usage in the final stream chunk (Ollama/LM Studio).
+      ...(isLocal && stream ? { stream_options: { include_usage: true } } : {}),
     };
   }
 
   /** Non-streaming completion. costUsd is computed from `pricing` (deterministic). */
   async complete(req: CompletionRequest, pricing: ModelPricing): Promise<CompletionResult> {
-    if (!this.apiKey) throw new OpenRouterError("No API key set. Run `poly login`.");
-    const res = await fetch(`${BASE}/chat/completions`, {
+    const t = this.target(req.model);
+    this.requireKeyFor(t.isLocal);
+    const res = await fetch(`${t.base}/chat/completions`, {
       method: "POST",
       headers: this.headers(),
-      body: JSON.stringify(this.buildBody(req, false)),
+      body: JSON.stringify(this.buildBody(req, false, t.model, t.isLocal)),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
@@ -108,8 +139,10 @@ export class OpenRouterClient {
       content: typeof msg.content === "string" ? msg.content : "",
       toolCalls: parseToolCalls(msg.tool_calls),
       usage,
-      model: json.model ?? req.model,
-      costUsd: computeCost(usage, pricing, json.usage?.cost),
+      // Keep the prefixed id for local models so the ledger stays consistent.
+      model: t.isLocal ? req.model : json.model ?? req.model,
+      // Local inference is free regardless of what the server claims to report.
+      costUsd: computeCost(usage, pricing, t.isLocal ? undefined : json.usage?.cost),
       finishReason: choice.finish_reason ?? null,
     };
   }
@@ -122,11 +155,12 @@ export class OpenRouterClient {
     req: CompletionRequest,
     pricing: ModelPricing
   ): AsyncGenerator<string, CompletionResult, void> {
-    if (!this.apiKey) throw new OpenRouterError("No API key set. Run `poly login`.");
-    const res = await fetch(`${BASE}/chat/completions`, {
+    const t = this.target(req.model);
+    this.requireKeyFor(t.isLocal);
+    const res = await fetch(`${t.base}/chat/completions`, {
       method: "POST",
       headers: this.headers(),
-      body: JSON.stringify(this.buildBody(req, true)),
+      body: JSON.stringify(this.buildBody(req, true, t.model, t.isLocal)),
     });
     if (!res.ok || !res.body) {
       const text = await res.text().catch(() => "");
@@ -163,7 +197,7 @@ export class OpenRouterClient {
         if (evt?.error) {
           throw new OpenRouterError(evt.error.message ?? "Stream provider error", evt.error.code);
         }
-        if (evt.model) model = evt.model;
+        if (evt.model && !t.isLocal) model = evt.model;
         if (evt.usage) usageJson = evt.usage;
         const choice = evt.choices?.[0];
         if (!choice) continue;
@@ -203,7 +237,7 @@ export class OpenRouterClient {
       toolCalls,
       usage,
       model,
-      costUsd: computeCost(usage, pricing, usageJson?.cost),
+      costUsd: computeCost(usage, pricing, t.isLocal ? undefined : usageJson?.cost),
       finishReason,
     };
   }

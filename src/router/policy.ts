@@ -14,6 +14,11 @@ export interface RoutingPolicy {
   maxCostPerCallUsd?: number;
   /** Hard pins: taskType -> model id. Overrides routing entirely. */
   pinned?: Record<string, string>;
+  /**
+   * Empirical efficiency boosts from the local playbook: "<taskType>:<modelId>" -> savingsPct.
+   * Models PROVEN notably efficient on a task get preferred under the `value` objective.
+   */
+  empirical?: Record<string, number>;
 }
 
 const TIER_RANK: Record<Tier, number> = { cheap: 0, standard: 1, frontier: 2 };

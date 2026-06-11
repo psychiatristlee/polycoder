@@ -9,6 +9,7 @@ import {
   type ReportFilter,
   type ModelTaskEfficiency,
 } from "./db.js";
+import { distillInsights, renderPlaybook } from "./insights.js";
 import { table, usd, tokens, c } from "../util/format.js";
 
 const MIN_SUCCESS_RATE = 0.5; // a model must succeed at least half the time to be "best"
@@ -22,6 +23,11 @@ export function renderAnalysis(filter: ReportFilter = {}): string {
   if (!byModelTask.length && !byObjective.length && !byCommand.length) {
     return c.dim("No analytics yet. Run `poly run \"<task>\"` a few times (and rate the result) first.");
   }
+
+  // ---- 0) Distill + show the playbook (what actually gets synced) ----------
+  const insights = distillInsights();
+  out.push(renderPlaybook(insights));
+  out.push("");
 
   // ---- 1) Best (min-token, still-successful) model per task type ----------
   if (byModelTask.length) {

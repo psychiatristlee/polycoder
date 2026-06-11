@@ -11,6 +11,25 @@
 #   • How much does each CLI command consume? (CommandRun)
 #   • How well was the user's goal achieved? (Session.autoScore / userScore)
 
+"""
+A distilled efficiency insight — the ONLY thing synced by default. A (taskType, model)
+pair that proved NOTABLY token-efficient: success ≥70%, ≥3 samples, and ≥20% fewer
+tokens than the median of qualified competitors. Raw logs stay local unless --raw.
+"""
+type Insight @table(name: "insights", key: ["id"]) {
+  id: String!                  # "<taskType>__<model>"
+  computedAt: Timestamp!
+  taskType: String!
+  model: String!
+  provider: String!
+  samples: Int!
+  successRate: Float!
+  avgTokens: Float!            # per successful step
+  baselineTokens: Float!       # median across qualified competitors
+  savingsPct: Float!           # the "notably efficient" margin
+  avgCostUsd: Float!
+}
+
 """One agent run (`poly run`): the goal, the approach, the outcome."""
 type Session @table(name: "sessions", key: ["id"]) {
   id: String!                  # CLI-generated UUID (same id as the local SQLite session)
