@@ -8,7 +8,7 @@ the best-value model combo before you run**.
 
 | Surface | What it does | Install |
 |---|---|---|
-| **CLI / TUI** (`poly`) | Full coding agent in your terminal | `npm i -g polyagent` |
+| **CLI / TUI** (`poly`) | Full coding agent in your terminal | `npm i -g polycoder` |
 | **VS Code** | Runs the agent in the integrated terminal | [`vscode-extension/`](vscode-extension/) → VSIX |
 | **Chrome** | Automates work in the browser (read / click / type / extract) | [`chrome-extension/`](chrome-extension/) → load unpacked |
 
@@ -41,7 +41,7 @@ beats a pricey generalist at edits. Polymath assigns the cheapest model that gen
 **From npm:**
 
 ```bash
-npm install -g polyagent
+npm install -g polycoder
 poly setup        # guided: optionally install a local LLM (Ollama) + connect models
 ```
 
@@ -66,8 +66,8 @@ poly update --self     # just the CLI   (also --ollama, --models)
 **From source** (no npm publish needed):
 
 ```bash
-git clone https://github.com/psychiatristlee/polyagent.git
-cd polyagent
+git clone https://github.com/psychiatristlee/polycoder.git
+cd polycoder
 npm install       # auto-builds dist/cli.js
 npm link          # puts `poly` on your PATH
 poly login

@@ -147,7 +147,7 @@ export async function runUpdate(currentVersion: string, opts: UpdateOptions): Pr
   if (all || opts.self) {
     let latest = "";
     try {
-      latest = execSync("npm view polyagent version", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      latest = execSync("npm view polycoder version", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
     } catch {
       latest = "";
     }
@@ -156,8 +156,8 @@ export async function runUpdate(currentVersion: string, opts: UpdateOptions): Pr
     } else if (cmp(latest, currentVersion) > 0) {
       console.log(c.yellow(`CLI: ${currentVersion} → ${latest} available.`));
       if (!opts.check) {
-        const ok = await run("npm", ["install", "-g", `polyagent@${latest}`]);
-        console.log(ok ? c.green(`✓ Updated to ${latest}.`) : c.red("npm update failed (try: sudo npm i -g polyagent@latest)."));
+        const ok = await run("npm", ["install", "-g", `polycoder@${latest}`]);
+        console.log(ok ? c.green(`✓ Updated to ${latest}.`) : c.red("npm update failed (try: sudo npm i -g polycoder@latest)."));
       } else {
         console.log(c.dim("  Run `poly update` to install."));
       }

@@ -38,7 +38,7 @@ export class OpenRouterClient {
 
   constructor(opts: OpenRouterOptions = {}) {
     this.apiKey = opts.apiKey;
-    this.referer = opts.referer ?? "https://github.com/psychiatristlee/polyagent";
+    this.referer = opts.referer ?? "https://github.com/psychiatristlee/polycoder";
     this.title = opts.title ?? "Polymath";
     this.localBaseUrl = opts.localBaseUrl?.replace(/\/$/, "");
   }

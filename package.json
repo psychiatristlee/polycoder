@@ -1,5 +1,5 @@
 {
-  "name": "polyagent",
+  "name": "polycoder",
   "version": "0.5.0",
   "description": "Polymath — a cost-optimized, multi-model TUI coding agent. Decomposes work into typed tasks, routes each task to the cheapest capable model via OpenRouter, and logs real usage/cost by date + model.",
   "type": "module",
@@ -35,11 +35,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/psychiatristlee/polyagent.git"
+    "url": "git+https://github.com/psychiatristlee/polycoder.git"
   },
-  "homepage": "https://github.com/psychiatristlee/polyagent#readme",
+  "homepage": "https://github.com/psychiatristlee/polycoder#readme",
   "bugs": {
-    "url": "https://github.com/psychiatristlee/polyagent/issues"
+    "url": "https://github.com/psychiatristlee/polycoder/issues"
   },
   "dependencies": {
     "commander": "^12.1.0",

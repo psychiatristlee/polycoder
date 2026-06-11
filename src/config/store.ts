@@ -37,7 +37,7 @@ export interface PolymathConfig {
 
 export const DEFAULT_CONFIG: PolymathConfig = {
   defaultObjective: "value",
-  referer: "https://github.com/psychiatristlee/polyagent",
+  referer: "https://github.com/psychiatristlee/polycoder",
   title: "Polymath",
   firestore: {
     enabled: false,

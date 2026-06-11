@@ -43,7 +43,7 @@ async function ensureInstalled(): Promise<boolean> {
   );
   if (choice === install) {
     const t = term();
-    t.sendText("npm install -g polyagent");
+    t.sendText("npm install -g polycoder");
     vscode.window.showInformationMessage(
       "Installing Polymath globally — re-run the command once npm finishes."
     );
