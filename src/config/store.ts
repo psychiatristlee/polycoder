@@ -31,6 +31,13 @@ export interface PolymathConfig {
     enabled: boolean;
     baseUrl: string;
   };
+  /**
+   * Procedural skill library: distill a reusable playbook from each verified success
+   * and replay it on similar goals to cut planning/exploration tokens.
+   */
+  skills: {
+    enabled: boolean;
+  };
   /** Pinned model overrides per task type (id), takes precedence over the router. */
   pinned?: Record<string, string>;
 }
@@ -53,6 +60,9 @@ export const DEFAULT_CONFIG: PolymathConfig = {
     enabled: false,
     baseUrl: "http://localhost:11434/v1", // Ollama default; LM Studio: http://localhost:1234/v1
   },
+  skills: {
+    enabled: true,
+  },
 };
 
 export function loadConfig(): PolymathConfig {
@@ -66,6 +76,7 @@ export function loadConfig(): PolymathConfig {
       firestore: { ...DEFAULT_CONFIG.firestore, ...(raw.firestore ?? {}) },
       dataconnect: { ...DEFAULT_CONFIG.dataconnect, ...(raw.dataconnect ?? {}) },
       local: { ...DEFAULT_CONFIG.local, ...(raw.local ?? {}) },
+      skills: { ...DEFAULT_CONFIG.skills, ...(raw.skills ?? {}) },
     };
   } catch {
     return { ...DEFAULT_CONFIG };

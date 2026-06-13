@@ -22,6 +22,7 @@ export interface AppProps {
   objectiveLabel: string;
   verify: boolean;
   maxAttempts: number;
+  skills: boolean;
   initialGoal?: string;
 }
 
@@ -70,6 +71,7 @@ export default function App(props: AppProps) {
       allowCommands: props.allowCommands,
       verify: props.verify,
       maxAttempts: props.maxAttempts,
+      skills: props.skills,
     };
     let textBuf = "";
     const flush = () => {
@@ -80,6 +82,12 @@ export default function App(props: AppProps) {
       switch (e.type) {
         case "plan":
           push(`📋 Plan (${e.plan.steps.length} steps) · planner: ${e.planModel}`, "cyan");
+          break;
+        case "skill-applied":
+          push(`📚 Reusing skill: ${e.name} — ${truncate(e.description, 70)}`, "blue");
+          break;
+        case "skill-saved":
+          push(`💾 ${e.isNew ? "Learned skill" : "Reinforced skill"}: ${e.name}`, "blue");
           break;
         case "criteria":
           push(`🎯 ${e.goalType} · ${e.criteria.length} criteria · start: ${e.startTier}${e.learned ? " (learned)" : ""}`, "cyan");

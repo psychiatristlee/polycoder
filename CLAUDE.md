@@ -31,6 +31,10 @@ src/
 ├── agent/
 │   ├── tools.ts        # read_file/write_file/list_dir/run_command/finish + executor
 │   └── loop.ts         # plan -> per-step route -> tool loop -> log usage (emits events)
+├── skills/
+│   ├── store.ts        # skill files (frontmatter + md playbook) under ~/.config/polymath/skills
+│   ├── match.ts        # deterministic goal→skill match (zero model cost) + prompt-injection render
+│   └── distill.ts      # distill a VERIFIED success into a skill; dedupe → reinforce a near-duplicate
 ├── usage/
 │   ├── db.ts           # node:sqlite schema: usage_log + sessions/step_runs/command_runs + analysis queries
 │   ├── logger.ts       # record one completion's usage (date+model+command)
@@ -85,6 +89,23 @@ node dist/cli.js <args>
   after each run (App.tsx "rate" phase, setUserScore).
 - `poly analyze` answers: min-token model per task type (success ≥50%), objective
   vs achievement, tokens per command. SQL equivalents: dataconnect/ANALYSIS.sql.
+
+## Skill library (procedural memory)
+
+- A *skill* is a reusable playbook (when-to-use + approach) Polymath distills from a
+  VERIFIED successful run and replays on similar goals — orthogonal to `insights`
+  (which learn model→task **routing**); skills capture **how to approach** a task so
+  the agent stops re-deriving the plan and burns fewer tokens.
+- Lifecycle in `agent/loop.ts`: (1) before planning, `matchSkill` finds a relevant
+  skill by deterministic token overlap (no model cost) and injects its playbook into
+  the planner + step + fix prompts (`renderSkillForPrompt`); (2) after a run passes
+  `verify`, `distill` (cheapest capable model) summarizes it and `saveOrReinforce`
+  either writes a new skill or reinforces a near-duplicate (bumps `sources`, merges
+  avg cost). Gated on verify — only proven approaches are learned.
+- Storage: one markdown file (frontmatter + body) per skill in
+  `~/.config/polymath/skills/`. CLI: `poly skills [list|show <name>|rm <name>]`.
+  Toggle with `poly config skills on|off` (`config.skills.enabled`, default on) or
+  per-run `--no-skills`.
 
 ## Firebase (optional analytics sync)
 

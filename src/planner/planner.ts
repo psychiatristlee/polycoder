@@ -60,13 +60,16 @@ export async function planRequest(
   goal: string,
   client: OpenRouterClient,
   planModel: ModelInfo,
-  onUsage?: (result: CompletionResult) => void
+  onUsage?: (result: CompletionResult) => void,
+  /** Optional reusable-skill playbook to bias the plan toward a proven approach. */
+  extraContext?: string
 ): Promise<Plan> {
+  const system = extraContext ? `${PLAN_SYSTEM}\n\n${extraContext}` : PLAN_SYSTEM;
   const result = await client.complete(
     {
       model: planModel.id,
       messages: [
-        { role: "system", content: PLAN_SYSTEM },
+        { role: "system", content: system },
         { role: "user", content: goal },
       ],
       temperature: 0,

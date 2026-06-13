@@ -7,10 +7,13 @@ import {
   rungForTier,
 } from "../router/policy.js";
 import { route, routeOrBest } from "../router/router.js";
-import { planRequest, heuristicPlan } from "../planner/planner.js";
+import { planRequest, heuristicPlan, classifyGoalType } from "../planner/planner.js";
 import type { Plan, PlannedStep } from "../planner/tasks.js";
 import { TOOL_SCHEMAS, executeTool, parseTextToolCall, type ToolContext } from "./tools.js";
 import { verifyGoal, type Verdict } from "./verify.js";
+import { listSkills, saveSkill, type Skill } from "../skills/store.js";
+import { matchSkill, renderSkillForPrompt } from "../skills/match.js";
+import { distill, heuristicSkill, saveOrReinforce } from "../skills/distill.js";
 import { logCompletion } from "../usage/logger.js";
 import {
   startSession,
@@ -25,6 +28,8 @@ import { TASK_SKILL } from "../models/strengths.js";
 
 export type AgentEvent =
   | { type: "plan"; plan: Plan; planModel: string }
+  | { type: "skill-applied"; name: string; description: string; score: number }
+  | { type: "skill-saved"; name: string; isNew: boolean; description: string }
   | { type: "criteria"; goalType: string; criteria: string[]; startTier: string; learned: boolean }
   | { type: "step-start"; step: PlannedStep; model: ModelInfo; estCostUsd: number }
   | { type: "text"; delta: string }
@@ -50,6 +55,8 @@ export interface AgentDeps {
   verify?: boolean;
   /** Max coding+verify attempts before giving up (default 3). */
   maxAttempts?: number;
+  /** Reuse + distill reusable skill playbooks (default true). */
+  skills?: boolean;
 }
 
 interface Acc {
@@ -74,6 +81,7 @@ export async function runAgent(
 ): Promise<{ totalCostUsd: number; totalTokens: number; calls: number; passed: boolean | null }> {
   const { client, models, cwd } = deps;
   const verifyOn = deps.verify ?? true;
+  const skillsOn = deps.skills ?? true;
   const maxAttempts = deps.maxAttempts ?? 3;
   const acc: Acc = { cost: 0, tokens: 0, prompt: 0, completion: 0, calls: 0 };
   const sessionStart = Date.now();
@@ -90,12 +98,36 @@ export async function runAgent(
     return entry;
   };
 
+  // 0) Skill recall: replay a proven playbook for similar goals (free, deterministic
+  //    match — no model cost) so the agent skips re-deriving an approach. Matched here,
+  //    BEFORE planning, so it can bias the plan too. Reuse is recorded immediately.
+  let appliedSkill: Skill | null = null;
+  let skillContext: string | undefined;
+  if (skillsOn) {
+    try {
+      const all = listSkills();
+      const m = all.length ? matchSkill(goal, classifyGoalType(goal), all) : null;
+      if (m) {
+        appliedSkill = m.skill;
+        skillContext = renderSkillForPrompt(appliedSkill);
+        emit({ type: "skill-applied", name: appliedSkill.name, description: appliedSkill.description, score: m.score });
+        try {
+          saveSkill({ ...appliedSkill, uses: appliedSkill.uses + 1, updatedAt: new Date().toISOString() });
+        } catch {
+          /* recording reuse is best-effort */
+        }
+      }
+    } catch {
+      appliedSkill = null;
+    }
+  }
+
   // 1) Plan (+ goal type + acceptance criteria).
   const planRoute = route("plan", models, deps.policy);
   let plan: Plan;
   if (planRoute) {
     try {
-      plan = await planRequest(goal, client, planRoute.model, (r) => logUsage(r, "plan"));
+      plan = await planRequest(goal, client, planRoute.model, (r) => logUsage(r, "plan"), skillContext);
     } catch {
       plan = heuristicPlan(goal);
     }
@@ -151,7 +183,7 @@ export async function runAgent(
       // First attempt: execute the whole plan. Only plan steps move the session-level
       // completed/failed counters (so completed+failed == plannedSteps).
       for (const step of plan.steps) {
-        const res = await runStep(step, rungPolicy, rungDef, deps, toolCtx, priorSummaries, emit, logUsage, goal);
+        const res = await runStep(step, rungPolicy, rungDef, deps, toolCtx, priorSummaries, emit, logUsage, goal, skillContext);
         if (res.success) completedSteps++;
         else failedSteps++;
       }
@@ -159,7 +191,7 @@ export async function runAgent(
       // Re-attempt: a focused fix pass driven by the verifier's feedback. Recorded in
       // step_runs + the attempts table; it is NOT a plan step, so it must not mutate the
       // session plan-step counters (would inflate completed_steps beyond plannedSteps).
-      await runFix(goal, plan, verdict!, rungPolicy, rungDef, deps, toolCtx, emit, logUsage);
+      await runFix(goal, plan, verdict!, rungPolicy, rungDef, deps, toolCtx, emit, logUsage, skillContext);
     }
 
     if (!verifyOn) {
@@ -214,6 +246,32 @@ export async function runAgent(
   }
 
   const passed = verifyOn ? (verdict ? verdict.allMet : false) : null;
+
+  // Learn: distill a VERIFIED success into a reusable skill (or reinforce a matching
+  // one). Gated on verify so we only learn from approaches we KNOW worked. Best-effort
+  // and uses the cheapest capable model — its tokens are logged into this session.
+  if (skillsOn && verifyOn && verdict?.allMet) {
+    try {
+      const distillRoute = route("summarize", models, deps.policy);
+      const distilled = distillRoute
+        ? await distill(goal, plan, priorSummaries, {
+            client,
+            model: distillRoute.model,
+            onUsage: (r) => logUsage(r, "summarize"),
+          })
+        : heuristicSkill(goal, plan, priorSummaries);
+      const res = saveOrReinforce(distilled, {
+        goalType: plan.goalType,
+        tools: deps.allowWrite || deps.allowCommands,
+        costUsd: acc.cost,
+        now: new Date().toISOString(),
+      });
+      emit({ type: "skill-saved", name: res.skill.name, isNew: res.isNew, description: res.skill.description });
+    } catch {
+      /* learning is best-effort; never break a run */
+    }
+  }
+
   finishSession(deps.sessionId, {
     plannedSteps: plan.steps.length,
     completedSteps,
@@ -247,7 +305,8 @@ async function runStep(
   priorSummaries: string[],
   emit: (e: AgentEvent) => void,
   logUsage: (r: CompletionResult, taskType: string) => UsageEntry,
-  goal: string
+  goal: string,
+  skillContext?: string
 ): Promise<StepResult> {
   const r = routeOrBest(step.type, deps.models, policy, {
     promptTokens: step.estPromptTokens,
@@ -261,7 +320,7 @@ async function runStep(
   emit({ type: "step-start", step, model, estCostUsd: r.estCostUsd });
 
   const messages: ChatMessage[] = [
-    { role: "system", content: stepSystemPrompt(goal, step, priorSummaries, model.capabilities.tools) },
+    { role: "system", content: stepSystemPrompt(goal, step, priorSummaries, model.capabilities.tools, skillContext) },
     { role: "user", content: step.description },
   ];
   const loop = await runToolLoop(model, messages, step.type, rungDef, deps, toolCtx, emit, logUsage);
@@ -298,7 +357,8 @@ async function runFix(
   deps: AgentDeps,
   toolCtx: ToolContext,
   emit: (e: AgentEvent) => void,
-  logUsage: (r: CompletionResult, taskType: string) => UsageEntry
+  logUsage: (r: CompletionResult, taskType: string) => UsageEntry,
+  skillContext?: string
 ): Promise<StepResult> {
   const r = routeOrBest("edit", deps.models, policy);
   if (!r) return { summary: "(no model)", success: false };
@@ -319,7 +379,7 @@ async function runFix(
       content: `You are the FIX stage of an autonomous coding agent (escalated model). The verify gate found unmet acceptance criteria; resolve them.
 Overall goal: ${goal}
 You may use the tools (read_file, write_file, list_dir, run_command). Inspect what's there, then make the changes. Call \`finish\` with a one-line summary when all listed criteria should now pass.
-If you cannot call tools natively, reply with ONLY one JSON object per turn: {"name":"<tool>","arguments":{...}}`,
+If you cannot call tools natively, reply with ONLY one JSON object per turn: {"name":"<tool>","arguments":{...}}${skillContext ? `\n\n${skillContext}` : ""}`,
     },
     { role: "user", content: `Unmet criteria:\n${unmet}\n\nVerifier feedback: ${verdict.feedback}` },
   ];
@@ -402,7 +462,7 @@ async function runToolLoop(
         for (const tc of result.toolCalls) {
           toolCalls++;
           emit({ type: "tool-call", name: tc.function.name, args: tc.function.arguments });
-          const outcome = executeTool(tc.function.name, tc.function.arguments, toolCtx);
+          const outcome = await executeTool(tc.function.name, tc.function.arguments, toolCtx);
           emit({ type: "tool-result", name: tc.function.name, result: outcome.result });
           messages.push({ role: "tool", tool_call_id: tc.id, name: tc.function.name, content: outcome.result });
           if (outcome.finishSummary != null) {
@@ -422,7 +482,7 @@ async function runToolLoop(
       if (textCall) {
         toolCalls++;
         emit({ type: "tool-call", name: textCall.function.name, args: textCall.function.arguments });
-        const outcome = executeTool(textCall.function.name, textCall.function.arguments, toolCtx);
+        const outcome = await executeTool(textCall.function.name, textCall.function.arguments, toolCtx);
         emit({ type: "tool-result", name: textCall.function.name, result: outcome.result });
         if (outcome.finishSummary != null) {
           summary = outcome.finishSummary;
@@ -459,14 +519,21 @@ async function runToolLoop(
   };
 }
 
-function stepSystemPrompt(goal: string, step: PlannedStep, priorSummaries: string[], useTools: boolean): string {
+function stepSystemPrompt(
+  goal: string,
+  step: PlannedStep,
+  priorSummaries: string[],
+  useTools: boolean,
+  skillContext?: string
+): string {
   const context = priorSummaries.length ? `\n\nWhat previous steps accomplished:\n${priorSummaries.join("\n")}` : "";
+  const skill = skillContext ? `\n\n${skillContext}` : "";
   const toolNote = useTools
     ? `\nYou may use the provided tools (read_file, write_file, list_dir, run_command). Call the \`finish\` tool with a one-line summary when this step's objective is met.
 If you cannot call tools natively, reply with ONLY one JSON object per turn, no prose: {"name":"<tool>","arguments":{...}}`
     : `\nReturn a concise result for this step. Do not ask the user questions.`;
   return `You are the "${step.type}" stage of an autonomous coding agent.
 Overall goal: ${goal}
-Your current step: ${step.description}${context}${toolNote}
+Your current step: ${step.description}${context}${skill}${toolNote}
 Be efficient — you were selected as the most cost-effective capable model for this step.`;
 }

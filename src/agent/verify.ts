@@ -87,7 +87,7 @@ export async function verifyGoal(
       if (result.toolCalls.length) messages.push({ role: "assistant", content: result.content, tool_calls: result.toolCalls });
       for (const tc of calls) {
         ev.onToolCall?.(tc.function.name, tc.function.arguments);
-        const outcome = executeTool(tc.function.name, tc.function.arguments, toolCtx);
+        const outcome = await executeTool(tc.function.name, tc.function.arguments, toolCtx);
         ev.onToolResult?.(tc.function.name, outcome.result);
         if (result.toolCalls.length) {
           messages.push({ role: "tool", tool_call_id: tc.id, name: tc.function.name, content: outcome.result });

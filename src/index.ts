@@ -16,6 +16,7 @@ import { syncUsage } from "./usage/firestoreSync.js";
 import { syncDataConnect } from "./usage/dataconnect.js";
 import { recordCommandRun, sessionUsageTotals, listInsights } from "./usage/db.js";
 import { insightBoostMap } from "./usage/insights.js";
+import { listSkills, readSkillFile, deleteSkill, skillsDir } from "./skills/store.js";
 import { logCompletion } from "./usage/logger.js";
 import { route } from "./router/router.js";
 import type { RoutingObjective, RoutingPolicy } from "./router/policy.js";
@@ -166,6 +167,7 @@ program
   .option("-x, --commands", "DANGER: let the model run arbitrary shell commands in --cwd", false)
   .option("-C, --cwd <dir>", "working directory", process.cwd())
   .option("--no-verify", "skip the verify-and-escalate loop (single pass)")
+  .option("--no-skills", "don't reuse or learn skill playbooks for this run")
   .option("--max-attempts <n>", "max code→verify→escalate attempts until goals met", "3")
   .action(async (goalParts: string[], opts) => {
     const startedAt = Date.now();
@@ -196,6 +198,7 @@ program
         objectiveLabel: policy.objective,
         verify: opts.verify !== false,
         maxAttempts: Math.max(1, parseInt(opts.maxAttempts, 10) || 3),
+        skills: reloaded.skills.enabled && opts.skills !== false,
         initialGoal: goal,
       })
     );
@@ -317,6 +320,57 @@ program
     console.log(renderAnalysis({ since: opts.since, until: opts.until }));
   });
 
+// ---- skills -----------------------------------------------------------------
+const skillsCmd = program
+  .command("skills")
+  .description("Reusable task playbooks Polymath distills from verified successes and replays on similar goals");
+skillsCmd
+  .command("list", { isDefault: true })
+  .description("List learned skills")
+  .action(() => {
+    const skills = listSkills();
+    if (!skills.length) {
+      console.log(
+        c.dim(
+          `No skills yet. Polymath learns one from each VERIFIED successful run (write mode + verify on),\n` +
+            `then replays it on similar goals. Disable with \`poly config skills off\` or \`--no-skills\`.\n` +
+            `Stored in ${skillsDir()}`
+        )
+      );
+      return;
+    }
+    const rows = skills.map((s) => [
+      c.green(s.name),
+      s.goalType,
+      String(s.uses),
+      String(s.sources),
+      usd(s.avgCostUsd),
+      s.description.length > 60 ? s.description.slice(0, 59) + "…" : s.description,
+    ]);
+    console.log(table(["Skill", "Goal", "Used", "Src", "Avg $", "Description"], rows));
+    console.log(c.dim(`\n${skills.length} skill(s) · ${skillsDir()}`));
+  });
+skillsCmd
+  .command("show")
+  .description("Print a skill's full playbook")
+  .argument("<name>", "skill name")
+  .action((name: string) => {
+    const raw = readSkillFile(name);
+    if (!raw) {
+      console.error(c.red(`No skill named "${name}". Run \`poly skills list\`.`));
+      process.exitCode = 1;
+      return;
+    }
+    console.log(raw);
+  });
+skillsCmd
+  .command("rm")
+  .description("Delete a skill")
+  .argument("<name>", "skill name")
+  .action((name: string) => {
+    console.log(deleteSkill(name) ? c.green(`Removed skill "${name}".`) : c.yellow(`No skill named "${name}".`));
+  });
+
 // ---- sync ------------------------------------------------------------------
 program
   .command("sync")
@@ -416,6 +470,21 @@ cfg
       c.green(
         `Local LLM ${config.local.enabled ? "enabled" : "disabled"} (${config.local.baseUrl}). ` +
           `Models appear as local/<name> with $0 cost.`
+      )
+    );
+  });
+cfg
+  .command("skills")
+  .description("Enable/disable learning + replaying reusable skill playbooks: on | off")
+  .argument("<state>")
+  .action((state: string) => {
+    const config = loadConfig();
+    config.skills.enabled = /^on|true|1$/i.test(state);
+    saveConfig(config);
+    console.log(
+      c.green(
+        `Skill learning ${config.skills.enabled ? "enabled" : "disabled"}. ` +
+          `Skills live in ${skillsDir()}.`
       )
     );
   });
