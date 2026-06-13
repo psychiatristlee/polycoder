@@ -21,6 +21,18 @@ export interface RoutingPolicy {
   empirical?: Record<string, number>;
   /** Minimum tier to consider (escalation raises this on verification failure). */
   tierFloor?: Tier;
+  /**
+   * Exclude $0 *cloud* models (OpenRouter `:free` tier). They're heavily rate-limited
+   * (429) and unreliable for multi-call agent runs — the real "value" pick is a cheap
+   * PAID model. Local ($0) models are never excluded by this.
+   */
+  excludeFree?: boolean;
+  /**
+   * Epsilon-greedy exploration rate (0..1). With this probability the router picks a
+   * non-top, under-sampled candidate instead of the learned-best one — so the optimal
+   * route doesn't calcify and new models keep getting sampled. 0 = always exploit.
+   */
+  explore?: number;
 }
 
 /**

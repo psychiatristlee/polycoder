@@ -39,3 +39,4 @@ firebase-debug.*.log
 # scratch simulation drivers
 scripts/sim-*.mts
 scripts/check-*.mts
+_*.mts

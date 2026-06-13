@@ -9,6 +9,11 @@ export interface PolymathConfig {
   defaultObjective: RoutingObjective;
   /** Optional ceiling on per-call cost (USD); models above this are excluded from routing. */
   maxCostPerCallUsd?: number;
+  /**
+   * Epsilon-greedy exploration rate (0..1): probability the router samples a non-top
+   * model so the optimal route keeps getting re-tested instead of calcifying. 0 = off.
+   */
+  exploreRate: number;
   /** Headers OpenRouter uses for attribution / rankings. */
   referer: string;
   title: string;
@@ -44,6 +49,7 @@ export interface PolymathConfig {
 
 export const DEFAULT_CONFIG: PolymathConfig = {
   defaultObjective: "value",
+  exploreRate: 0.15,
   referer: "https://github.com/psychiatristlee/polycoder",
   title: "Polymath",
   firestore: {

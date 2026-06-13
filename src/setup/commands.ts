@@ -11,6 +11,7 @@ import {
   installedModels,
   suggestModels,
   totalRamGb,
+  recommendBestModel,
   run,
   type ModelSuggestion,
 } from "./localllm.js";
@@ -19,6 +20,29 @@ export interface SetupOptions {
   local?: boolean; // --local / --no-local; undefined = ask
   model?: string;
   yes?: boolean; // -y, accept defaults / auto-install
+  auto?: boolean; // measure the machine and auto-pick the strongest model that fits
+  recommend?: boolean; // just print the measurement + recommendation, change nothing
+}
+
+/** Print detected specs and the strongest local model that fits this machine. */
+export function printRecommendation(): void {
+  const rec = recommendBestModel();
+  const s = rec.sys;
+  console.log(c.bold("\n🖥  Detected hardware"));
+  console.log(`   ${s.cpu}  ·  ${s.ramGb}GB RAM  ·  ${s.freeDiskGb}GB free disk  (${s.platform}/${s.arch})`);
+  console.log(c.bold("\n🏆 Best local model that fits"));
+  if (rec.best) {
+    console.log(`   ${c.green(rec.best.id)}  (~${rec.best.diskGb}GB) — ${rec.best.note}`);
+  } else {
+    console.log(c.yellow("   None fit — free up disk or use a smaller model / OpenRouter."));
+  }
+  if (rec.fits.length > 1) {
+    console.log(c.dim("   also fits: " + rec.fits.slice(1).map((m) => `${m.id} (~${m.diskGb}GB)`).join(", ")));
+  }
+  for (const b of rec.blocked) {
+    console.log(c.dim(`   ✗ ${b.spec.id} — ${b.reason}`));
+  }
+  console.log("");
 }
 
 /** First-run setup: optionally install a local LLM, and optionally connect OpenRouter. */
@@ -26,8 +50,15 @@ export async function runSetup(opts: SetupOptions): Promise<void> {
   console.log(c.bold("\n🔧 Polymath setup\n"));
   const config = loadConfig();
 
+  // --recommend: report only, change nothing.
+  if (opts.recommend) {
+    printRecommendation();
+    return;
+  }
+
   // 1) Local LLM — gated by the --local / --no-local flag (or a prompt).
-  let wantLocal = opts.local;
+  //    --auto implies local + auto-pick the best-fitting model.
+  let wantLocal = opts.auto ? true : opts.local;
   if (wantLocal === undefined) {
     wantLocal = await confirm(
       `Install a local LLM (Ollama) for $0, offline, no-API-key runs? (RAM detected: ${totalRamGb()}GB)`,
@@ -89,6 +120,15 @@ async function setupLocal(opts: SetupOptions, config: ReturnType<typeof loadConf
   // c) Model.
   const have = await installedModels(config.local.baseUrl);
   let modelId = opts.model;
+  if (!modelId && (opts.auto || opts.yes)) {
+    // Measure the machine and auto-pick the strongest model that fits RAM + disk.
+    printRecommendation();
+    const best = recommendBestModel().best;
+    if (best) {
+      modelId = best.id;
+      console.log(c.cyan(`Auto-selected ${c.bold(best.id)} for this machine.`));
+    }
+  }
   if (!modelId) {
     const suggestions = suggestModels().filter((s) => !have.includes(s.id));
     if (have.length && !suggestions.length) {

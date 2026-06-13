@@ -14,6 +14,21 @@ export interface RouteResult {
   model: ModelInfo;
   reason: string;
   estCostUsd: number;
+  /** true when this pick was an epsilon-greedy exploration, not the top route. */
+  explored?: boolean;
+}
+
+/**
+ * Pick a non-top candidate to SAMPLE (exploration). Biases toward models we have no
+ * learned insight for yet (under-explored), within a plausible band of the ranking so
+ * we don't waste a run on an obviously-bad pick.
+ */
+function pickExploration(ranked: ModelInfo[], policy: RoutingPolicy, taskType: TaskType): ModelInfo {
+  const band = ranked.slice(1, 8); // skip the exploit pick; stay near the top
+  if (!band.length) return ranked[0];
+  const novel = band.filter((m) => policy.empirical?.[`${taskType}:${m.id}`] == null);
+  const pool = novel.length ? novel : band;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 export function projectCost(m: ModelInfo, est: TokenEstimate): number {
@@ -51,6 +66,8 @@ export function candidatesFor(
     policy.tierFloor && tierRank(policy.tierFloor) > tierRank(spec.minTier) ? policy.tierFloor : spec.minTier;
   return models.filter((m) => {
     if (m.id === "openrouter/auto") return false;
+    // Drop unreliable $0 cloud (free-tier) models when asked; keep local $0 models.
+    if (policy.excludeFree && !m.id.startsWith("local/") && blendedPrice(m) <= 0) return false;
     // The strength-floor bypass only applies when not escalating past the task's own floor.
     const covers =
       tierAtLeast(m.tier, minTier) ||
@@ -109,8 +126,24 @@ export function route(
   const cands = candidatesFor(taskType, models, policy, est);
   if (!cands.length) return null;
   const ranked = rank(cands, policy, taskType);
-  const chosen = ranked[0];
   const skill = TASK_SKILL[taskType];
+
+  // Epsilon-greedy: occasionally sample a non-top candidate so the learned route
+  // doesn't calcify and new combos keep being tested under real workloads.
+  const eps = policy.explore ?? 0;
+  if (eps > 0 && ranked.length > 1 && Math.random() < eps) {
+    const pick = pickExploration(ranked, policy, taskType);
+    if (pick.id !== ranked[0].id) {
+      return {
+        model: pick,
+        reason: `🎲 exploring (ε=${eps}): sampling ${pick.id} off the top ${skill} route`,
+        estCostUsd: projectCost(pick, est),
+        explored: true,
+      };
+    }
+  }
+
+  const chosen = ranked[0];
   const proven = policy.empirical?.[`${taskType}:${chosen.id}`];
   const reason =
     policy.objective === "cheapest"

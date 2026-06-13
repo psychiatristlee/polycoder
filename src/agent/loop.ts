@@ -31,7 +31,7 @@ export type AgentEvent =
   | { type: "skill-applied"; name: string; description: string; score: number }
   | { type: "skill-saved"; name: string; isNew: boolean; description: string }
   | { type: "criteria"; goalType: string; criteria: string[]; startTier: string; learned: boolean }
-  | { type: "step-start"; step: PlannedStep; model: ModelInfo; estCostUsd: number }
+  | { type: "step-start"; step: PlannedStep; model: ModelInfo; estCostUsd: number; explored?: boolean }
   | { type: "text"; delta: string }
   | { type: "tool-call"; name: string; args: string }
   | { type: "tool-result"; name: string; result: string }
@@ -51,6 +51,8 @@ export interface AgentDeps {
   cwd: string;
   allowWrite: boolean;
   allowCommands: boolean;
+  /** Allow web_search + web_fetch (network egress) during the run. */
+  allowWeb?: boolean;
   /** Verify the result against acceptance criteria and escalate on failure (default true). */
   verify?: boolean;
   /** Max coding+verify attempts before giving up (default 3). */
@@ -85,7 +87,7 @@ export async function runAgent(
   const maxAttempts = deps.maxAttempts ?? 3;
   const acc: Acc = { cost: 0, tokens: 0, prompt: 0, completion: 0, calls: 0 };
   const sessionStart = Date.now();
-  const toolCtx: ToolContext = { cwd, allowWrite: deps.allowWrite, allowCommands: deps.allowCommands };
+  const toolCtx: ToolContext = { cwd, allowWrite: deps.allowWrite, allowCommands: deps.allowCommands, allowWeb: deps.allowWeb ?? false };
 
   const logUsage = (r: CompletionResult, taskType: string) => {
     const entry = logCompletion(r, taskType, deps.sessionId);
@@ -208,7 +210,7 @@ export async function runAgent(
       break;
     }
     emit({ type: "verify-start", model: verifier.model.id, attempt: attemptNo + 1 });
-    verdict = await verifyGoal(goal, plan.criteria, { client, model: verifier.model, cwd, allowCommands: deps.allowCommands }, {
+    verdict = await verifyGoal(goal, plan.criteria, { client, model: verifier.model, cwd, allowCommands: deps.allowCommands, allowWeb: deps.allowWeb }, {
       onToolCall: (name, args) => emit({ type: "tool-call", name, args }),
       onToolResult: (name, result) => emit({ type: "tool-result", name, result }),
       onUsage: (r) => logUsage(r, "review"),
@@ -317,7 +319,7 @@ async function runStep(
     return { summary: "(no model)", success: false };
   }
   const model = r.model;
-  emit({ type: "step-start", step, model, estCostUsd: r.estCostUsd });
+  emit({ type: "step-start", step, model, estCostUsd: r.estCostUsd, explored: r.explored });
 
   const messages: ChatMessage[] = [
     { role: "system", content: stepSystemPrompt(goal, step, priorSummaries, model.capabilities.tools, skillContext) },
@@ -370,7 +372,7 @@ async function runFix(
     estPromptTokens: 9000,
     estCompletionTokens: 1500,
   };
-  emit({ type: "step-start", step: fixStep, model, estCostUsd: r.estCostUsd });
+  emit({ type: "step-start", step: fixStep, model, estCostUsd: r.estCostUsd, explored: r.explored });
 
   const unmet = verdict.unmet.map((u, i) => `${i + 1}. ${u.criterion} — ${u.reason}`).join("\n");
   const messages: ChatMessage[] = [

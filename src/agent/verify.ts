@@ -43,10 +43,10 @@ When done, reply with ONLY this JSON (no prose, no code fence):
 export async function verifyGoal(
   goal: string,
   criteria: string[],
-  deps: { client: OpenRouterClient; model: ModelInfo; cwd: string; allowCommands: boolean },
+  deps: { client: OpenRouterClient; model: ModelInfo; cwd: string; allowCommands: boolean; allowWeb?: boolean },
   ev: VerifyEvents = {}
 ): Promise<Verdict> {
-  const toolCtx: ToolContext = { cwd: deps.cwd, allowWrite: false, allowCommands: deps.allowCommands };
+  const toolCtx: ToolContext = { cwd: deps.cwd, allowWrite: false, allowCommands: deps.allowCommands, allowWeb: deps.allowWeb ?? false };
   const useTools = deps.model.capabilities.tools;
   const messages: ChatMessage[] = [
     { role: "system", content: VERIFY_SYSTEM },

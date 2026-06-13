@@ -58,6 +58,34 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     type: "function",
     function: {
+      name: "web_search",
+      description:
+        "Search the web and return the top results (title, URL, snippet). Use to find official documentation and real-world references before designing or implementing.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search query" },
+          count: { type: "number", description: "Max results (default 5)" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "web_fetch",
+      description: "Fetch a web page by URL and return its readable text content (HTML stripped). Use to read docs/references found via web_search.",
+      parameters: {
+        type: "object",
+        properties: { url: { type: "string", description: "http(s) URL" } },
+        required: ["url"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "finish",
       description: "Signal that the task is complete with a short summary for the user.",
       parameters: {
@@ -106,6 +134,8 @@ export interface ToolContext {
   /** Set true to allow run_command + write_file to actually execute. */
   allowWrite: boolean;
   allowCommands: boolean;
+  /** Set true to allow web_search + web_fetch (network egress). */
+  allowWeb: boolean;
 }
 
 export interface ToolOutcome {
@@ -243,6 +273,126 @@ function resolve(ctx: ToolContext, p: string): string {
   return abs;
 }
 
+// ---- web research -----------------------------------------------------------
+
+const WEB_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
+const WEB_TIMEOUT_MS = 20_000;
+const WEB_MAX_CHARS = 6000;
+
+/** Block loopback / link-local / private ranges so the agent can't hit internal services. */
+function isBlockedHost(host: string): boolean {
+  const h = host.toLowerCase();
+  if (h === "localhost" || h.endsWith(".local") || h === "0.0.0.0" || h === "::1" || h === "[::1]") return true;
+  if (/^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h) || /^169\.254\./.test(h)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  return false;
+}
+
+function safeCodePoint(n: number): string {
+  try {
+    return Number.isFinite(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : "";
+  } catch {
+    return "";
+  }
+}
+
+function htmlToText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/tr)\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => safeCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => safeCodePoint(parseInt(d, 10)))
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s*\n\s*\n+/g, "\n\n")
+    .trim();
+}
+
+async function fetchText(url: string, headers: Record<string, string> = {}): Promise<{ status: number; ctype: string; body: string }> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), WEB_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      signal: ctrl.signal,
+      redirect: "follow",
+      headers: { "user-agent": WEB_UA, accept: "text/html,application/xhtml+xml,text/plain,*/*", ...headers },
+    });
+    const ctype = res.headers.get("content-type") ?? "";
+    const body = await res.text();
+    return { status: res.status, ctype, body };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function webFetch(rawUrl: string): Promise<string> {
+  let u: URL;
+  try {
+    u = new URL(rawUrl);
+  } catch {
+    return `Error: invalid URL: ${rawUrl}`;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return "Error: only http(s) URLs are allowed.";
+  if (isBlockedHost(u.hostname)) return `Error: refusing to fetch a private/loopback host (${u.hostname}).`;
+  try {
+    const { status, ctype, body } = await fetchText(u.href);
+    const text = /html|xml/i.test(ctype) ? htmlToText(body) : body;
+    const clipped = text.length > WEB_MAX_CHARS ? text.slice(0, WEB_MAX_CHARS) + `\n…(truncated, ${text.length} chars)` : text;
+    return redactSecrets(`# ${u.href}  (HTTP ${status})\n\n${clipped}`);
+  } catch (err: any) {
+    return `Error fetching ${u.href}: ${err?.name === "AbortError" ? "timed out" : err?.message ?? String(err)}`;
+  }
+}
+
+async function webSearch(query: string, count: number): Promise<string> {
+  const n = Math.min(Math.max(count || 5, 1), 10);
+  // DuckDuckGo's no-API HTML endpoint — no key required.
+  const url = "https://html.duckduckgo.com/html/?q=" + encodeURIComponent(query);
+  let body: string;
+  try {
+    body = (await fetchText(url)).body;
+  } catch (err: any) {
+    return `Error searching: ${err?.name === "AbortError" ? "timed out" : err?.message ?? String(err)}`;
+  }
+  const results: { title: string; url: string; snippet: string }[] = [];
+  const linkRe = /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  const snipRe = /<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
+  const snippets: string[] = [];
+  let sm: RegExpExecArray | null;
+  while ((sm = snipRe.exec(body))) snippets.push(htmlToText(sm[1]));
+  let m: RegExpExecArray | null;
+  let i = 0;
+  while ((m = linkRe.exec(body)) && results.length < n) {
+    let href = m[1];
+    // DDG wraps targets as /l/?uddg=<encoded>.
+    const uddg = href.match(/[?&]uddg=([^&]+)/);
+    if (uddg) {
+      try {
+        href = decodeURIComponent(uddg[1]);
+      } catch {
+        /* keep as-is */
+      }
+    }
+    if (href.startsWith("//")) href = "https:" + href;
+    results.push({ title: htmlToText(m[2]), url: href, snippet: snippets[i] ?? "" });
+    i++;
+  }
+  if (!results.length) return `No results for "${query}". (The search endpoint may have changed or rate-limited.)`;
+  return redactSecrets(
+    `Top ${results.length} results for "${query}":\n\n` +
+      results.map((r, idx) => `${idx + 1}. ${r.title}\n   ${r.url}${r.snippet ? `\n   ${r.snippet}` : ""}`).join("\n\n")
+  );
+}
+
 export async function executeTool(name: string, argsJson: string, ctx: ToolContext): Promise<ToolOutcome> {
   let args: any = {};
   try {
@@ -280,6 +430,14 @@ export async function executeTool(name: string, argsJson: string, ctx: ToolConte
       case "run_command": {
         if (!ctx.allowCommands) return { result: "Denied: run_command is disabled." };
         return { result: await runCommandStreaming(String(args.command), ctx) };
+      }
+      case "web_search": {
+        if (!ctx.allowWeb) return { result: "Denied: web access is disabled (run with --web)." };
+        return { result: clip(await webSearch(String(args.query ?? ""), Number(args.count))) };
+      }
+      case "web_fetch": {
+        if (!ctx.allowWeb) return { result: "Denied: web access is disabled (run with --web)." };
+        return { result: clip(await webFetch(String(args.url ?? ""))) };
       }
       case "finish":
         return { result: "ok", finishSummary: String(args.summary ?? "Done.") };

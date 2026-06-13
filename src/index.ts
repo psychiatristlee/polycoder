@@ -15,10 +15,11 @@ import { renderAnalysis } from "./usage/analyze.js";
 import { syncUsage } from "./usage/firestoreSync.js";
 import { syncDataConnect } from "./usage/dataconnect.js";
 import { recordCommandRun, sessionUsageTotals, listInsights } from "./usage/db.js";
-import { insightBoostMap } from "./usage/insights.js";
+import { insightBoostMap, distillInsights } from "./usage/insights.js";
 import { listSkills, readSkillFile, deleteSkill, skillsDir } from "./skills/store.js";
 import { logCompletion } from "./usage/logger.js";
 import { route } from "./router/router.js";
+import { ALL_TASK_TYPES } from "./planner/tasks.js";
 import type { RoutingObjective, RoutingPolicy } from "./router/policy.js";
 import { blendedPrice } from "./router/policy.js";
 import { table, usd, perMTok, tierColor, c } from "./util/format.js";
@@ -42,22 +43,30 @@ function client(config: PolymathConfig): OpenRouterClient {
   });
 }
 
-function buildPolicy(config: PolymathConfig, opts: { objective?: string; maxCost?: string }): RoutingPolicy {
+function buildPolicy(
+  config: PolymathConfig,
+  opts: { objective?: string; maxCost?: string; free?: boolean; explore?: string }
+): RoutingPolicy {
   const objective = (opts.objective as RoutingObjective) || config.defaultObjective;
   const maxCost = opts.maxCost != null ? parseFloat(opts.maxCost) : config.maxCostPerCallUsd;
-  // Learned routing: prefer approaches the local playbook has PROVEN token-efficient.
+  // Learned routing: re-distill insights from ALL accumulated runs first (closes the
+  // learn loop so exploration results feed back), then prefer proven-efficient routes.
   let empirical: Record<string, number> | undefined;
   try {
+    distillInsights();
     empirical = insightBoostMap(listInsights());
     if (!Object.keys(empirical).length) empirical = undefined;
   } catch {
     empirical = undefined;
   }
+  const explore = opts.explore != null ? parseFloat(opts.explore) : config.exploreRate;
   return {
     objective,
     maxCostPerCallUsd: Number.isFinite(maxCost as number) ? (maxCost as number) : undefined,
     pinned: config.pinned,
     empirical,
+    excludeFree: opts.free === false,
+    explore: Number.isFinite(explore) ? Math.min(Math.max(explore, 0), 1) : 0,
   };
 }
 
@@ -127,13 +136,15 @@ program
   .description("First-run setup: optionally install a local LLM (Ollama) and connect models")
   .option("--local", "install a local LLM (Ollama) — skips the prompt")
   .option("--no-local", "skip the local LLM — skips the prompt")
+  .option("--auto", "measure this machine and auto-install the strongest local model that fits", false)
+  .option("--recommend", "just print detected specs + the best-fitting local model (no changes)", false)
   .option("-m, --model <id>", "local model to pull (e.g. qwen2.5-coder:7b)")
   .option("-y, --yes", "accept defaults / auto-install without prompts", false)
   .action(async (opts) => {
     // Tri-state from argv so "neither flag" → interactive prompt.
     const argv = process.argv;
     const local = argv.includes("--local") ? true : argv.includes("--no-local") ? false : undefined;
-    await runSetup({ local, model: opts.model, yes: !!opts.yes });
+    await runSetup({ local, model: opts.model, yes: !!opts.yes, auto: !!opts.auto, recommend: !!opts.recommend });
   });
 
 // ---- update -----------------------------------------------------------------
@@ -165,8 +176,12 @@ program
   .option("--max-cost <usd>", "exclude models whose projected per-call cost exceeds this")
   .option("-w, --write", "allow the agent to write files (confined to --cwd)", false)
   .option("-x, --commands", "DANGER: let the model run arbitrary shell commands in --cwd", false)
+  .option("-W, --web", "allow web_search + web_fetch (research official docs/references)", false)
   .option("-C, --cwd <dir>", "working directory", process.cwd())
   .option("--no-verify", "skip the verify-and-escalate loop (single pass)")
+  .option("--no-free", "exclude $0 OpenRouter free-tier models (rate-limited); prefer cheap paid")
+  .option("--model <id>", "pin EVERY task to one model id (for benchmarking a single model/combo)")
+  .option("--explore <rate>", "epsilon-greedy exploration rate 0..1 (default from config; 0 = always exploit)")
   .option("--no-skills", "don't reuse or learn skill playbooks for this run")
   .option("--max-attempts <n>", "max code→verify→escalate attempts until goals met", "3")
   .action(async (goalParts: string[], opts) => {
@@ -183,6 +198,10 @@ program
     const reloaded = loadConfig();
     const models = await loadCatalog(reloaded);
     const policy = buildPolicy(reloaded, opts);
+    // --model: pin every task type to one model id (single-model benchmark runs).
+    if (opts.model) {
+      policy.pinned = Object.fromEntries(ALL_TASK_TYPES.map((t) => [t, opts.model as string]));
+    }
     const goal = goalParts?.join(" ").trim() || undefined;
     const sessionId = randomUUID();
 
@@ -195,6 +214,7 @@ program
         cwd: opts.cwd,
         allowWrite: !!opts.write,
         allowCommands: !!opts.commands,
+        allowWeb: !!opts.web,
         objectiveLabel: policy.objective,
         verify: opts.verify !== false,
         maxAttempts: Math.max(1, parseInt(opts.maxAttempts, 10) || 3),
@@ -421,7 +441,7 @@ cfg
   });
 cfg
   .command("set")
-  .description("Set a setting: objective <cheapest|value|quality> | maxcost <usd> | referer <url> | title <text>")
+  .description("Set a setting: objective <cheapest|value|quality> | maxcost <usd> | explore <0..1> | referer <url> | title <text>")
   .argument("<key>")
   .argument("<value>")
   .action((key: string, value: string) => {
@@ -432,6 +452,9 @@ cfg
         break;
       case "maxcost":
         config.maxCostPerCallUsd = parseFloat(value);
+        break;
+      case "explore":
+        config.exploreRate = Math.min(Math.max(parseFloat(value) || 0, 0), 1);
         break;
       case "referer":
         config.referer = value;

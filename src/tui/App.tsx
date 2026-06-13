@@ -19,6 +19,7 @@ export interface AppProps {
   cwd: string;
   allowWrite: boolean;
   allowCommands: boolean;
+  allowWeb: boolean;
   objectiveLabel: string;
   verify: boolean;
   maxAttempts: number;
@@ -69,6 +70,7 @@ export default function App(props: AppProps) {
       cwd: props.cwd,
       allowWrite: props.allowWrite,
       allowCommands: props.allowCommands,
+      allowWeb: props.allowWeb,
       verify: props.verify,
       maxAttempts: props.maxAttempts,
       skills: props.skills,
@@ -110,7 +112,7 @@ export default function App(props: AppProps) {
           break;
         case "step-start":
           flush();
-          push(`▶ Step ${e.step.id} [${e.step.type}] → ${e.model.id}  ~${usd(e.estCostUsd)}`, "yellow");
+          push(`${e.explored ? "🎲" : "▶"} Step ${e.step.id} [${e.step.type}] → ${e.model.id}  ~${usd(e.estCostUsd)}${e.explored ? " (exploring)" : ""}`, e.explored ? "magenta" : "yellow");
           break;
         case "text":
           textBuf += e.delta;
