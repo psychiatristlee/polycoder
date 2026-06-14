@@ -1,0 +1,46 @@
+:root {
+  --bg: #0f1115;
+  --card: #1a1d24;
+  --fg: #e7e9ee;
+  --mut: #9aa3b2;
+  --ac: #6ea8fe;
+  --br: #2a2f3a;
+  --grn: #74c98a;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Pretendard, "Noto Sans KR", sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+}
+.wrap { max-width: 760px; margin: 0 auto; padding: 40px 20px 90px; }
+h1 { font-size: 32px; margin: 6px 0 2px; letter-spacing: -0.5px; }
+h1 .p { color: var(--ac); }
+.sub { color: var(--mut); margin: 0 0 24px; font-size: 14px; }
+.row { display: flex; gap: 8px; }
+input, button { font: inherit; }
+input[type="text"] {
+  flex: 1; padding: 13px 16px; border-radius: 12px; border: 1px solid var(--br);
+  background: var(--card); color: var(--fg); outline: none;
+}
+input[type="text"]:focus { border-color: var(--ac); }
+button {
+  padding: 13px 18px; border-radius: 12px; border: 0; background: var(--ac);
+  color: #06122b; font-weight: 700; cursor: pointer;
+}
+button.ghost { background: transparent; border: 1px solid var(--br); color: var(--mut); font-weight: 500; }
+button:disabled { opacity: 0.5; cursor: default; }
+.hit { padding: 16px; border: 1px solid var(--br); border-radius: 14px; background: var(--card); margin-top: 12px; }
+.hit a { color: var(--ac); text-decoration: none; font-weight: 600; font-size: 18px; }
+.hit a:hover { text-decoration: underline; }
+.hit .u { color: var(--grn); font-size: 12px; margin: 3px 0; word-break: break-all; }
+.hit .s { color: var(--mut); font-size: 14px; }
+.meta { color: var(--mut); font-size: 13px; margin: 18px 0 4px; }
+details { margin-top: 26px; border-top: 1px solid var(--br); padding-top: 16px; }
+summary { cursor: pointer; color: var(--mut); }
+.idx { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.idx input.url { flex: 1; min-width: 220px; }
+.idx input.n { width: 84px; }
+.badge { display: inline-block; background: var(--card); border: 1px solid var(--br); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: var(--mut); margin: 2px 4px 0 0; }
+.spin { color: var(--ac); }

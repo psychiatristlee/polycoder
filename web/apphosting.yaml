@@ -1,0 +1,27 @@
+# Firebase App Hosting config for the poly-search Next.js app.
+# Connects to the existing Cloud SQL Postgres instance; DB password comes from
+# Secret Manager (polysearch-db-password).
+runConfig:
+  cpu: 1
+  memoryMiB: 512
+  minInstances: 0
+  maxInstances: 2
+  concurrency: 80
+
+env:
+  - variable: INSTANCE_CONNECTION_NAME
+    value: "mathology-b8e3d:us-east4:mathology-b8e3d-instance"
+    availability:
+      - RUNTIME
+  - variable: DB_NAME
+    value: "polysearch"
+    availability:
+      - RUNTIME
+  - variable: DB_USER
+    value: "polysearch"
+    availability:
+      - RUNTIME
+  - variable: DB_PASSWORD
+    secret: polysearch-db-password
+    availability:
+      - RUNTIME

@@ -17,6 +17,9 @@ import { syncDataConnect } from "./usage/dataconnect.js";
 import { recordCommandRun, sessionUsageTotals, listInsights } from "./usage/db.js";
 import { insightBoostMap, distillInsights } from "./usage/insights.js";
 import { listSkills, readSkillFile, deleteSkill, skillsDir } from "./skills/store.js";
+import { search as searchLocal, statsByHost, docCount, clearIndex } from "./search/engine.js";
+import { crawl as crawlSite } from "./search/crawl.js";
+import { serveSearch, installLaunchAgent } from "./search/server.js";
 import { logCompletion } from "./usage/logger.js";
 import { route } from "./router/router.js";
 import { ALL_TASK_TYPES } from "./planner/tasks.js";
@@ -531,6 +534,74 @@ cfg
           `(service ${config.dataconnect.serviceId} @ ${config.dataconnect.location}).`
       )
     );
+  });
+
+// ---- search (local self-owned engine) --------------------------------------
+const searchCmd = program
+  .command("search")
+  .description("Self-owned search engine: crawl your own corpus, BM25 search, web GUI");
+searchCmd
+  .command("query", { isDefault: true })
+  .description("Search the local index")
+  .argument("<query...>", "search terms")
+  .action((parts: string[]) => {
+    const q = parts.join(" ");
+    const hits = searchLocal(q, 12);
+    if (!hits.length) {
+      console.log(c.dim(`No results for "${q}". Index a site first: poly search index <url>`));
+      return;
+    }
+    for (const h of hits) {
+      console.log(c.green(h.title || h.url));
+      console.log("  " + c.dim(h.url));
+      console.log("  " + h.snippet + "\n");
+    }
+    console.log(c.dim(`${hits.length} result(s) · ${docCount()} docs indexed`));
+  });
+searchCmd
+  .command("index")
+  .description("Crawl + index a site into the local engine")
+  .argument("<url...>", "seed URL(s)")
+  .option("--max <n>", "max pages", "25")
+  .option("--depth <d>", "crawl depth", "1")
+  .option("--all-domains", "follow off-site links too", false)
+  .action(async (urls: string[], opts) => {
+    console.log(c.cyan(`Crawling ${urls.join(", ")}…`));
+    const r = await crawlSite(urls, {
+      maxPages: parseInt(opts.max, 10) || 25,
+      depth: parseInt(opts.depth, 10) || 1,
+      sameDomain: !opts.allDomains,
+      onProgress: (p) => process.stdout.write(`\r  indexed ${p.indexed}…`),
+    });
+    console.log(c.green(`\n✓ Indexed ${r.indexed} pages (visited ${r.visited}). Total docs: ${docCount()}`));
+  });
+searchCmd
+  .command("serve")
+  .description("Run the search web GUI (always-on local server)")
+  .option("-p, --port <n>", "port", "8787")
+  .option("--install", "auto-start at login (macOS LaunchAgent)", false)
+  .action(async (opts) => {
+    const port = parseInt(opts.port, 10) || 8787;
+    if (opts.install) {
+      const r = installLaunchAgent(port);
+      console.log(r.ok ? c.green(r.message) : c.yellow(r.message));
+      return;
+    }
+    await serveSearch({ port });
+  });
+searchCmd
+  .command("stats")
+  .description("Index stats by host")
+  .action(() => {
+    console.log(c.bold(`${docCount()} docs indexed`));
+    for (const h of statsByHost()) console.log(`  ${h.host}  ${c.dim(String(h.docs))}`);
+  });
+searchCmd
+  .command("clear")
+  .description("Clear the index (optionally one host)")
+  .argument("[host]")
+  .action((host?: string) => {
+    console.log(c.green(`Removed ${clearIndex(host)} docs.`));
   });
 
 program.parseAsync().catch((err) => {

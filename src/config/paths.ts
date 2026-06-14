@@ -29,3 +29,8 @@ export function dbFilePath(): string {
 export function modelCachePath(): string {
   return path.join(configDir(), "models.cache.json");
 }
+
+/** Local self-owned search index (crawled docs + BM25). */
+export function searchDbFilePath(): string {
+  return path.join(configDir(), "search.sqlite");
+}
