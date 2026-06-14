@@ -29,3 +29,7 @@ env:
     secret: polysearch-admin-token
     availability:
       - RUNTIME
+  - variable: SEARCH_TOKEN
+    secret: polysearch-search-token
+    availability:
+      - RUNTIME

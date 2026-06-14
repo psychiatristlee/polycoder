@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import type { ToolSchema, ToolCall } from "../providers/types.js";
 import { extractJson } from "../planner/planner.js";
+import { searchWeb } from "../search/providers.js";
 
 export const TOOL_SCHEMAS: ToolSchema[] = [
   {
@@ -66,7 +67,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     function: {
       name: "web_search",
       description:
-        "Search the web and return the top results (title, URL, snippet). Use to find official documentation and real-world references before designing or implementing.",
+        "Search the web and return the top results (title, URL, snippet). Use to find official documentation and real-world references before designing or implementing. The backend engine is configurable (DuckDuckGo / Brave / the self-hosted polysearch).",
       parameters: {
         type: "object",
         properties: {
@@ -359,46 +360,6 @@ async function webFetch(rawUrl: string): Promise<string> {
   }
 }
 
-async function webSearch(query: string, count: number): Promise<string> {
-  const n = Math.min(Math.max(count || 5, 1), 10);
-  // DuckDuckGo's no-API HTML endpoint — no key required.
-  const url = "https://html.duckduckgo.com/html/?q=" + encodeURIComponent(query);
-  let body: string;
-  try {
-    body = (await fetchText(url)).body;
-  } catch (err: any) {
-    return `Error searching: ${err?.name === "AbortError" ? "timed out" : err?.message ?? String(err)}`;
-  }
-  const results: { title: string; url: string; snippet: string }[] = [];
-  const linkRe = /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-  const snipRe = /<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
-  const snippets: string[] = [];
-  let sm: RegExpExecArray | null;
-  while ((sm = snipRe.exec(body))) snippets.push(htmlToText(sm[1]));
-  let m: RegExpExecArray | null;
-  let i = 0;
-  while ((m = linkRe.exec(body)) && results.length < n) {
-    let href = m[1];
-    // DDG wraps targets as /l/?uddg=<encoded>.
-    const uddg = href.match(/[?&]uddg=([^&]+)/);
-    if (uddg) {
-      try {
-        href = decodeURIComponent(uddg[1]);
-      } catch {
-        /* keep as-is */
-      }
-    }
-    if (href.startsWith("//")) href = "https:" + href;
-    results.push({ title: htmlToText(m[2]), url: href, snippet: snippets[i] ?? "" });
-    i++;
-  }
-  if (!results.length) return `No results for "${query}". (The search endpoint may have changed or rate-limited.)`;
-  return redactSecrets(
-    `Top ${results.length} results for "${query}":\n\n` +
-      results.map((r, idx) => `${idx + 1}. ${r.title}\n   ${r.url}${r.snippet ? `\n   ${r.snippet}` : ""}`).join("\n\n")
-  );
-}
-
 export async function executeTool(name: string, argsJson: string, ctx: ToolContext): Promise<ToolOutcome> {
   let args: any = {};
   try {
@@ -439,7 +400,15 @@ export async function executeTool(name: string, argsJson: string, ctx: ToolConte
       }
       case "web_search": {
         if (!ctx.allowWeb) return { result: "Denied: web access is disabled (run with --web)." };
-        return { result: clip(await webSearch(String(args.query ?? ""), Number(args.count))) };
+        const n = Math.min(Math.max(Number(args.count) || 5, 1), 10);
+        const out = await searchWeb(String(args.query ?? ""), n);
+        if (!out.results.length) {
+          return { result: out.error ? `Search via ${out.provider} failed: ${out.error}` : `No results for "${args.query}" (via ${out.provider}).` };
+        }
+        const text =
+          `Top ${out.results.length} results (via ${out.provider}) for "${args.query}":\n\n` +
+          out.results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}${r.snippet ? `\n   ${r.snippet}` : ""}`).join("\n\n");
+        return { result: clip(redactSecrets(text)) };
       }
       case "web_fetch": {
         if (!ctx.allowWeb) return { result: "Denied: web access is disabled (run with --web)." };

@@ -1,4 +1,9 @@
 {
+  "apphosting": {
+    "backendId": "polysearch",
+    "rootDir": "web",
+    "ignore": ["node_modules", ".git", "**/node_modules/**", ".next"]
+  },
   "firestore": {
     "database": "(default)",
     "location": "nam5",

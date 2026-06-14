@@ -43,6 +43,17 @@ export interface PolymathConfig {
   skills: {
     enabled: boolean;
   };
+  /**
+   * Web-search provider for the agent's web_search tool — decoupled from poly so you
+   * can swap engines: 'duckduckgo' (keyless), 'brave' (API key), or 'polysearch' (our
+   * own hosted engine, free but key-gated).
+   */
+  search: {
+    provider: string;
+    braveApiKey?: string;
+    polysearchUrl?: string;
+    polysearchKey?: string;
+  };
   /** Pinned model overrides per task type (id), takes precedence over the router. */
   pinned?: Record<string, string>;
 }
@@ -69,6 +80,9 @@ export const DEFAULT_CONFIG: PolymathConfig = {
   skills: {
     enabled: true,
   },
+  search: {
+    provider: "duckduckgo",
+  },
 };
 
 export function loadConfig(): PolymathConfig {
@@ -83,6 +97,7 @@ export function loadConfig(): PolymathConfig {
       dataconnect: { ...DEFAULT_CONFIG.dataconnect, ...(raw.dataconnect ?? {}) },
       local: { ...DEFAULT_CONFIG.local, ...(raw.local ?? {}) },
       skills: { ...DEFAULT_CONFIG.skills, ...(raw.skills ?? {}) },
+      search: { ...DEFAULT_CONFIG.search, ...(raw.search ?? {}) },
     };
   } catch {
     return { ...DEFAULT_CONFIG };

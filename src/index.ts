@@ -446,7 +446,10 @@ cfg
   });
 cfg
   .command("set")
-  .description("Set a setting: objective <cheapest|value|quality> | maxcost <usd> | explore <0..1> | referer <url> | title <text>")
+  .description(
+    "Set a setting: objective <cheapest|value|quality> | maxcost <usd> | explore <0..1> | " +
+      "searchprovider <duckduckgo|brave|polysearch> | bravekey <key> | polysearchurl <url> | polysearchkey <key> | referer <url> | title <text>"
+  )
   .argument("<key>")
   .argument("<value>")
   .action((key: string, value: string) => {
@@ -460,6 +463,18 @@ cfg
         break;
       case "explore":
         config.exploreRate = Math.min(Math.max(parseFloat(value) || 0, 0), 1);
+        break;
+      case "searchprovider":
+        config.search.provider = value;
+        break;
+      case "bravekey":
+        config.search.braveApiKey = value;
+        break;
+      case "polysearchurl":
+        config.search.polysearchUrl = value;
+        break;
+      case "polysearchkey":
+        config.search.polysearchKey = value;
         break;
       case "referer":
         config.referer = value;

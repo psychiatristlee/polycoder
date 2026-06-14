@@ -23,32 +23,43 @@ export default function Home() {
   const [idxMsg, setIdxMsg] = useState("");
   const [indexing, setIndexing] = useState(false);
   const [token, setToken] = useState("");
+  const [searchKey, setSearchKey] = useState("");
+  const [searchErr, setSearchErr] = useState("");
 
-  async function loadStats() {
+  async function loadStats(key?: string) {
+    const k = (key ?? searchKey).trim();
+    if (!k) {
+      setStats(null);
+      return;
+    }
     try {
-      setStats(await (await fetch("/api/stats")).json());
+      setStats(await (await fetch("/api/stats", { headers: { "x-search-token": k } })).json());
     } catch {
       /* ignore */
     }
   }
-  useEffect(() => {
-    loadStats();
-    setToken(localStorage.getItem("polysearch_admin_token") || "");
-    const qq = new URLSearchParams(window.location.search).get("q");
-    if (qq) {
-      setQ(qq);
-      runSearch(qq);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
-  async function runSearch(term: string) {
+  async function runSearch(term: string, key?: string) {
     term = term.trim();
+    const k = (key ?? searchKey).trim();
     if (!term) return;
+    if (!k) {
+      setSearchErr("검색 키가 필요합니다 (아래 '검색 키'에 입력).");
+      setHits([]);
+      return;
+    }
+    setSearchErr("");
     setLoading(true);
     setHits(null);
     try {
-      const r = await (await fetch("/api/search?q=" + encodeURIComponent(term))).json();
+      const res = await fetch("/api/search?q=" + encodeURIComponent(term), { headers: { "x-search-token": k } });
+      if (res.status === 401) {
+        setSearchErr("검색 키가 올바르지 않습니다 (401).");
+        setHits([]);
+        setLoading(false);
+        return;
+      }
+      const r = await res.json();
       setHits(r.hits || []);
     } catch {
       setHits([]);
@@ -56,10 +67,24 @@ export default function Home() {
     setLoading(false);
   }
 
+  useEffect(() => {
+    const sk = localStorage.getItem("polysearch_search_key") || "";
+    setSearchKey(sk);
+    setToken(localStorage.getItem("polysearch_admin_token") || "");
+    if (sk) loadStats(sk);
+    const qq = new URLSearchParams(window.location.search).get("q");
+    if (qq) {
+      setQ(qq);
+      if (sk) runSearch(qq, sk);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function go(e: FormEvent) {
     e.preventDefault();
     const term = q.trim();
     if (!term) return;
+    if (searchKey.trim()) localStorage.setItem("polysearch_search_key", searchKey.trim());
     if (typeof window !== "undefined") window.history.replaceState(null, "", "/?q=" + encodeURIComponent(term));
     runSearch(term);
   }
@@ -100,7 +125,21 @@ export default function Home() {
       <h1>
         <span className="p">poly</span> search
       </h1>
-      <p className="sub">내가 크롤링한 코퍼스를 Postgres 풀텍스트로 검색 · Firebase App Hosting + Cloud SQL</p>
+      <p className="sub">내가 크롤링한 코퍼스를 Postgres 풀텍스트로 검색 · Firebase App Hosting + Cloud SQL · 🔑 키 필요</p>
+
+      <input
+        type="password"
+        placeholder="🔑 검색 키 (Search key)"
+        value={searchKey}
+        onChange={(e) => setSearchKey(e.target.value)}
+        onBlur={() => {
+          if (searchKey.trim()) {
+            localStorage.setItem("polysearch_search_key", searchKey.trim());
+            loadStats(searchKey.trim());
+          }
+        }}
+        style={{ width: "100%", marginBottom: 10, padding: "11px 14px", borderRadius: 10, border: "1px solid var(--br)", background: "var(--card)", color: "var(--fg)" }}
+      />
 
       <form className="row" onSubmit={go}>
         <input type="text" placeholder="검색어를 입력하세요…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
@@ -119,6 +158,7 @@ export default function Home() {
       )}
 
       <div>
+        {searchErr && <p className="meta" style={{ color: "#e0884f" }}>{searchErr}</p>}
         {loading && <p className="meta spin">검색 중…</p>}
         {hits && hits.length === 0 && !loading && <p className="meta">결과 없음. 먼저 사이트를 색인하세요.</p>}
         {hits &&
