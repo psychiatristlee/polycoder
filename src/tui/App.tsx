@@ -113,6 +113,12 @@ export default function App(props: AppProps) {
         case "escalate":
           push(`⏫ Escalate → ${e.toRung}  (${e.reason})`, "magenta");
           break;
+        case "question":
+          flush();
+          push(`❓ ${e.question}`, "cyan");
+          e.options.forEach((o, i) => push(`   ${i + 1}) ${o}`, "gray"));
+          push(`   (비대화 모드: 가장 합리적인 옵션으로 진행)`, "gray");
+          break;
         case "quality":
           flush();
           setQuality({ overall: e.overall, summary: e.summary });

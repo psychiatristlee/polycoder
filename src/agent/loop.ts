@@ -9,7 +9,7 @@ import {
 import { route, routeOrBest } from "../router/router.js";
 import { planRequest, heuristicPlan, classifyGoalType } from "../planner/planner.js";
 import type { Plan, PlannedStep } from "../planner/tasks.js";
-import { TOOL_SCHEMAS, executeTool, parseTextToolCall, type ToolContext } from "./tools.js";
+import { TOOL_SCHEMAS, executeTool, parseTextToolCall, type ToolContext, type ToolOutcome } from "./tools.js";
 import { verifyGoal, type Verdict } from "./verify.js";
 import { scoreQuality, scoreDesignVision } from "./quality.js";
 import { renderScreenshot, pngDataUrl } from "./render.js";
@@ -38,6 +38,7 @@ export type AgentEvent =
   | { type: "text"; delta: string }
   | { type: "tool-call"; name: string; args: string }
   | { type: "tool-result"; name: string; result: string }
+  | { type: "question"; question: string; options: string[] }
   | { type: "usage"; entry: UsageEntry }
   | { type: "step-end"; step: PlannedStep; summary: string }
   | { type: "verify-start"; model: string; attempt: number }
@@ -65,6 +66,35 @@ export interface AgentDeps {
   skills?: boolean;
   /** Score the delivered result's quality with an LLM judge at the end (default true). */
   quality?: boolean;
+  /** Interactive clarifier: when the agent calls ask_user, resolve the chosen option. */
+  ask?: (question: string, options: string[]) => Promise<string>;
+}
+
+/** Handle the ask_user tool: surface the question + options, await the user's choice. */
+async function handleAskUser(
+  argsJson: string,
+  deps: AgentDeps,
+  emit: (e: AgentEvent) => void
+): Promise<ToolOutcome> {
+  let question = "";
+  let options: string[] = [];
+  try {
+    const a = JSON.parse(argsJson || "{}");
+    question = String(a.question ?? "");
+    options = Array.isArray(a.options) ? a.options.map((o: any) => String(o)) : [];
+  } catch {
+    /* keep defaults */
+  }
+  emit({ type: "question", question, options });
+  if (deps.ask) {
+    try {
+      const answer = await deps.ask(question, options);
+      return { result: `The user chose: ${answer}. Proceed accordingly.` };
+    } catch {
+      /* fall through */
+    }
+  }
+  return { result: "No interactive user is available. Proceed with the most reasonable option and clearly state the assumption you made." };
 }
 
 interface Acc {
@@ -440,9 +470,12 @@ async function runFix(
   const messages: ChatMessage[] = [
     {
       role: "system",
-      content: `You are the FIX stage of an autonomous coding agent (escalated model). The verify gate found unmet acceptance criteria; resolve them.
+      content: `You are the FIX stage of an autonomous coding agent (escalated model). The verify gate found unmet acceptance criteria; resolve them so the ORIGINAL intent is fully achieved.
 Overall goal: ${goal}
-You may use the tools (read_file, write_file, list_dir, run_command). Inspect what's there, then make the changes. Call \`finish\` with a one-line summary when all listed criteria should now pass.
+Tools: read_file, write_file, list_dir, run_command, web_search, web_fetch, finish. Inspect what's there, then make the changes.
+- SELF-UNBLOCK: if something is missing or failing, install it, write a helper script, or web_search the fix — don't stop until the criteria pass.
+- web_search/web_fetch if you need the concrete/correct approach.
+Call \`finish\` with a one-line summary when all listed criteria should now pass.
 If you cannot call tools natively, reply with ONLY one JSON object per turn: {"name":"<tool>","arguments":{...}}${skillContext ? `\n\n${skillContext}` : ""}`,
     },
     { role: "user", content: `Unmet criteria:\n${unmet}\n\nVerifier feedback: ${verdict.feedback}` },
@@ -526,7 +559,10 @@ async function runToolLoop(
         for (const tc of result.toolCalls) {
           toolCalls++;
           emit({ type: "tool-call", name: tc.function.name, args: tc.function.arguments });
-          const outcome = await executeTool(tc.function.name, tc.function.arguments, toolCtx);
+          const outcome =
+            tc.function.name === "ask_user"
+              ? await handleAskUser(tc.function.arguments, deps, emit)
+              : await executeTool(tc.function.name, tc.function.arguments, toolCtx);
           emit({ type: "tool-result", name: tc.function.name, result: outcome.result });
           messages.push({ role: "tool", tool_call_id: tc.id, name: tc.function.name, content: outcome.result });
           if (outcome.finishSummary != null) {
@@ -546,7 +582,10 @@ async function runToolLoop(
       if (textCall) {
         toolCalls++;
         emit({ type: "tool-call", name: textCall.function.name, args: textCall.function.arguments });
-        const outcome = await executeTool(textCall.function.name, textCall.function.arguments, toolCtx);
+        const outcome =
+          textCall.function.name === "ask_user"
+            ? await handleAskUser(textCall.function.arguments, deps, emit)
+            : await executeTool(textCall.function.name, textCall.function.arguments, toolCtx);
         emit({ type: "tool-result", name: textCall.function.name, result: outcome.result });
         if (outcome.finishSummary != null) {
           summary = outcome.finishSummary;
@@ -593,9 +632,13 @@ function stepSystemPrompt(
   const context = priorSummaries.length ? `\n\nWhat previous steps accomplished:\n${priorSummaries.join("\n")}` : "";
   const skill = skillContext ? `\n\n${skillContext}` : "";
   const toolNote = useTools
-    ? `\nYou may use the provided tools (read_file, write_file, list_dir, run_command). Call the \`finish\` tool with a one-line summary when this step's objective is met.
+    ? `\nTools: read_file, write_file, list_dir, run_command, web_search, web_fetch, ask_user, finish.
+- RESEARCH FIRST when unsure: if the approach is unclear or needs current/specific knowledge, web_search/web_fetch to make it concrete before implementing.
+- SELF-UNBLOCK: if you hit a blocker (missing library, tool, command, or info), do NOT give up — install it (run_command), write a small helper script/tool, or search for the fix, then use it to continue. Build whatever you need to finish the task.
+- ASK ONLY WHEN AMBIGUOUS: if there's a genuine fork you cannot resolve from context, call ask_user with 2-4 concrete options; otherwise proceed with sensible defaults.
+- Call \`finish\` with a one-line summary when the objective is truly met.
 If you cannot call tools natively, reply with ONLY one JSON object per turn, no prose: {"name":"<tool>","arguments":{...}}`
-    : `\nReturn a concise result for this step. Do not ask the user questions.`;
+    : `\nReturn a concise result for this step.`;
   return `You are the "${step.type}" stage of an autonomous coding agent.
 Overall goal: ${goal}
 Your current step: ${step.description}${context}${skill}${toolNote}

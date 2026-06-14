@@ -577,6 +577,24 @@ program
     const policy = buildPolicy(config, opts);
     const goal = goalParts.join(" ");
     const sessionId = randomUUID();
+    // Interactive clarification over stdin: handleAskUser emits a `question` event,
+    // the host (desktop app) writes the chosen answer back as a line on our stdin.
+    let rl: any = null;
+    const waiters: ((s: string) => void)[] = [];
+    const buffered: string[] = [];
+    const ask = (_q: string, _options: string[]): Promise<string> => {
+      if (!rl) {
+        rl = (require("node:readline") as typeof import("node:readline")).createInterface({ input: process.stdin });
+        rl.on("line", (line: string) => {
+          const w = waiters.shift();
+          if (w) w(line);
+          else buffered.push(line);
+        });
+      }
+      const b = buffered.shift();
+      if (b !== undefined) return Promise.resolve(b.trim());
+      return new Promise((res) => waiters.push((s) => res(s.trim())));
+    };
     const deps: AgentDeps = {
       client: client(config),
       models,
@@ -590,6 +608,7 @@ program
       maxAttempts: Math.max(1, parseInt(opts.maxAttempts, 10) || 3),
       skills: config.skills.enabled && opts.skills !== false,
       quality: opts.quality !== false,
+      ask,
     };
     const emit = (e: AgentEvent) => process.stdout.write(JSON.stringify(e) + "\n");
     try {
@@ -599,6 +618,8 @@ program
     }
     const totals = sessionUsageTotals(sessionId);
     trackCommand({ command: "agent", startedAt, sessionId, args: goal, objective: policy.objective, ...totals });
+    if (rl) rl.close();
+    process.exit(0);
   });
 
 // ---- search (local self-owned engine) --------------------------------------

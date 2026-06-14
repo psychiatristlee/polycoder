@@ -93,6 +93,22 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   {
     type: "function",
     function: {
+      name: "ask_user",
+      description:
+        "Ask the user to choose when the request is genuinely AMBIGUOUS — present a question plus 2-4 concrete options (like Claude Code). Returns the user's choice. Only use for real forks you cannot resolve from context; otherwise proceed with sensible defaults.",
+      parameters: {
+        type: "object",
+        properties: {
+          question: { type: "string" },
+          options: { type: "array", items: { type: "string" }, description: "2-4 concrete choices" },
+        },
+        required: ["question", "options"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "finish",
       description: "Signal that the task is complete with a short summary for the user.",
       parameters: {

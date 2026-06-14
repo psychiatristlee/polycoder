@@ -16,13 +16,14 @@ function polyBin() {
 }
 const POLY = polyBin();
 let win;
+let agentChild = null;
 
 function createWindow() {
   win = new BrowserWindow({
     width: 1100,
     height: 800,
-    title: "Polymac",
-    backgroundColor: "#0f1115",
+    title: "polyrun",
+    backgroundColor: "#f7f2ea",
     webPreferences: { preload: path.join(__dirname, "preload.js") },
   });
   win.loadFile(path.join(__dirname, "renderer.html"));
@@ -87,6 +88,19 @@ ipcMain.handle("read-file", (_e, file) => {
     return { ok: false, error: String((e && e.message) || e), path: file };
   }
 });
+ipcMain.handle("read-xlsx", (_e, file) => {
+  try {
+    const XLSX = require("xlsx");
+    const wb = XLSX.readFile(file);
+    const sheets = wb.SheetNames.slice(0, 6).map((name) => ({
+      name,
+      rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "" }).slice(0, 200),
+    }));
+    return { ok: true, sheets };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+});
 ipcMain.handle("capture", async (_e, file) => {
   try {
     const img = await win.webContents.capturePage();
@@ -103,8 +117,9 @@ ipcMain.on("run-agent", (e, { goal, cwd }) => {
   } catch {
     /* ignore */
   }
-  const args = ["agent", goal, "-w", "-x", "-C", cwd, "-o", process.env.POLY_OBJ || "value", "--no-free", "--no-skills"];
+  const args = ["agent", goal, "-w", "-x", "--web", "-C", cwd, "-o", process.env.POLY_OBJ || "value", "--no-free", "--no-skills"];
   const child = spawn(POLY, args, { env: process.env });
+  agentChild = child;
   let buf = "";
   child.stdout.on("data", (d) => {
     buf += d.toString();
@@ -121,6 +136,14 @@ ipcMain.on("run-agent", (e, { goal, cwd }) => {
   });
   child.stderr.on("data", (d) => e.sender.send("agent-log", d.toString().trim()));
   child.on("close", (code) => e.sender.send("agent-event", { type: "exit", code }));
+});
+
+ipcMain.on("answer", (_e, text) => {
+  try {
+    if (agentChild && agentChild.stdin && agentChild.stdin.writable) agentChild.stdin.write(String(text) + "\n");
+  } catch {
+    /* ignore */
+  }
 });
 
 ipcMain.on("setup-local", (e) => {
