@@ -183,6 +183,7 @@ program
   .option("--model <id>", "pin EVERY task to one model id (for benchmarking a single model/combo)")
   .option("--explore <rate>", "epsilon-greedy exploration rate 0..1 (default from config; 0 = always exploit)")
   .option("--no-skills", "don't reuse or learn skill playbooks for this run")
+  .option("--no-quality", "skip the end-of-run LLM quality score")
   .option("--max-attempts <n>", "max code→verify→escalate attempts until goals met", "3")
   .action(async (goalParts: string[], opts) => {
     const startedAt = Date.now();
@@ -219,6 +220,7 @@ program
         verify: opts.verify !== false,
         maxAttempts: Math.max(1, parseInt(opts.maxAttempts, 10) || 3),
         skills: reloaded.skills.enabled && opts.skills !== false,
+        quality: opts.quality !== false,
         initialGoal: goal,
       })
     );

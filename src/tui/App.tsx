@@ -24,6 +24,7 @@ export interface AppProps {
   verify: boolean;
   maxAttempts: number;
   skills: boolean;
+  quality: boolean;
   initialGoal?: string;
 }
 
@@ -48,6 +49,7 @@ export default function App(props: AppProps) {
   const [rated, setRated] = useState<number | null>(null);
   const [passed, setPassed] = useState<boolean | null>(null);
   const [attempts, setAttempts] = useState(0);
+  const [quality, setQuality] = useState<{ overall: number; summary: string } | null>(null);
 
   const push = useCallback((text: string, color?: string) => {
     setLog((l) => [...l, { key: l.length, text, color }]);
@@ -74,6 +76,7 @@ export default function App(props: AppProps) {
       verify: props.verify,
       maxAttempts: props.maxAttempts,
       skills: props.skills,
+      quality: props.quality,
     };
     let textBuf = "";
     const flush = () => {
@@ -109,6 +112,15 @@ export default function App(props: AppProps) {
           break;
         case "escalate":
           push(`⏫ Escalate → ${e.toRung}  (${e.reason})`, "magenta");
+          break;
+        case "quality":
+          flush();
+          setQuality({ overall: e.overall, summary: e.summary });
+          push(
+            `📊 Quality ${e.overall}/100 · 정확${e.dims.correctness} 완성${e.dims.completeness} 코드${e.dims.codeQuality} UX${e.dims.uxPolish} · ${e.judge}`,
+            "blue"
+          );
+          if (e.summary) push(`   ${truncate(e.summary, 110)}`, "gray");
           break;
         case "step-start":
           flush();
@@ -216,7 +228,7 @@ export default function App(props: AppProps) {
             <Text>
               <Text color={passed === false ? "yellow" : "green"}>
                 {passed === false ? "⚠ goal not fully met" : "✓ goal met"} · {attempts} attempt(s) · {calls} calls ·{" "}
-                {tokens(tok)} tokens · {usd(cost)}
+                {tokens(tok)} tokens · {usd(cost)}{quality ? ` · 📊 ${quality.overall}/100` : ""}
               </Text>
               {"\n"}
               <Text color="cyan">How well was your goal achieved? </Text>
@@ -227,6 +239,7 @@ export default function App(props: AppProps) {
           {phase === "done" && (
             <Text color="green">
               ✓ Done · {calls} calls · {tokens(tok)} tokens · {usd(cost)}
+              {quality ? ` · 📊 ${quality.overall}/100` : ""}
               {rated != null ? ` · rated ${rated}/9` : ""} — press q to quit
             </Text>
           )}

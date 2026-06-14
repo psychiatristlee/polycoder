@@ -47,7 +47,13 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
     type: "function",
     function: {
       name: "run_command",
-      description: "Run a shell command in the working directory and return combined stdout/stderr.",
+      description:
+        "Run a shell command in the working directory and return combined stdout/stderr. " +
+        "Use this for real terminal work: git (status/add/commit/branch/diff/log), package managers " +
+        "(npm/pnpm/yarn/pip), build & test (npm run build, pytest, go test), and deploy/cloud CLIs " +
+        "(firebase, gh, vercel, supabase, docker). Commands run NON-INTERACTIVELY (no stdin) — always pass " +
+        "non-interactive flags (e.g. --yes, -m for git commit, firebase --non-interactive) and never start " +
+        "long-running servers (dev servers/watchers) as they will be killed when idle.",
       parameters: {
         type: "object",
         properties: { command: { type: "string" } },

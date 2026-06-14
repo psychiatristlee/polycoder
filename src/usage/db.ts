@@ -163,6 +163,11 @@ function getDb(): DatabaseSync {
   addSession("start_tier", "TEXT");
   addSession("attempts", "INTEGER NOT NULL DEFAULT 1");
   addSession("final_passed", "INTEGER"); // 1 met all criteria, 0 did not, null = no verify
+  // Migration: LLM-judge quality score (v0.6.0). 0..100 overall + per-dim JSON + notes + judge model.
+  addSession("quality_score", "REAL"); // 0..100 overall, null = not scored
+  addSession("quality_dims", "TEXT"); // JSON: {correctness,completeness,codeQuality,uxPolish}
+  addSession("quality_notes", "TEXT");
+  addSession("quality_judge", "TEXT");
   return db;
 }
 
@@ -455,6 +460,58 @@ export function optimalStartTier(goalType: string, minSessions = 3): string | nu
 /** User-rated goal achievement, 0..9 (asked in the TUI after a run). */
 export function setUserScore(sessionId: string, score: number): void {
   getDb().prepare(`UPDATE sessions SET user_score=? WHERE id=?`).run(score, sessionId);
+}
+
+/** LLM-judge quality score for a finished session (0..100 overall + dimension breakdown). */
+export function recordQuality(
+  sessionId: string,
+  q: { overall: number; dims: Record<string, number>; summary: string; judge: string }
+): void {
+  getDb()
+    .prepare(`UPDATE sessions SET quality_score=?, quality_dims=?, quality_notes=?, quality_judge=? WHERE id=?`)
+    .run(q.overall, JSON.stringify(q.dims), q.summary, q.judge, sessionId);
+}
+
+export interface QualityByModelRow {
+  model: string;
+  sessions: number;
+  avgQuality: number;
+  avgCostUsd: number;
+  qualityPerDollar: number;
+}
+
+/**
+ * Per primary edit-model: average quality score vs average cost — the "quality per
+ * dollar" leaderboard that answers which combos approach top quality far cheaper.
+ */
+export function qualityByModel(filter: ReportFilter = {}): QualityByModelRow[] {
+  const { whereSql, params } = dateWhere(filter, "se.ts");
+  const rows = getDb()
+    .prepare(
+      `SELECT m.model AS model,
+              COUNT(*) AS sessions,
+              AVG(se.quality_score) AS avgQuality,
+              AVG(se.cost_usd) AS avgCostUsd
+       FROM sessions se
+       JOIN (
+         SELECT session_id, model FROM step_runs WHERE task_type='edit' GROUP BY session_id
+       ) m ON m.session_id = se.id
+       ${whereSql ? whereSql + " AND" : "WHERE"} se.quality_score IS NOT NULL
+       GROUP BY m.model
+       ORDER BY avgQuality DESC`
+    )
+    .all(...params) as any[];
+  return rows.map((r) => {
+    const q = Number(r.avgQuality ?? 0);
+    const c = Number(r.avgCostUsd ?? 0);
+    return {
+      model: String(r.model),
+      sessions: Number(r.sessions),
+      avgQuality: q,
+      avgCostUsd: c,
+      qualityPerDollar: c > 0 ? q / c : 0,
+    };
+  });
 }
 
 export function recordStepRun(s: StepRunRow): void {

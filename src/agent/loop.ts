@@ -11,6 +11,7 @@ import { planRequest, heuristicPlan, classifyGoalType } from "../planner/planner
 import type { Plan, PlannedStep } from "../planner/tasks.js";
 import { TOOL_SCHEMAS, executeTool, parseTextToolCall, type ToolContext } from "./tools.js";
 import { verifyGoal, type Verdict } from "./verify.js";
+import { scoreQuality } from "./quality.js";
 import { listSkills, saveSkill, type Skill } from "../skills/store.js";
 import { matchSkill, renderSkillForPrompt } from "../skills/match.js";
 import { distill, heuristicSkill, saveOrReinforce } from "../skills/distill.js";
@@ -20,6 +21,7 @@ import {
   finishSession,
   recordStepRun,
   recordAttempt,
+  recordQuality,
   optimalStartTier,
   type UsageEntry,
   type StepRunRow,
@@ -39,6 +41,7 @@ export type AgentEvent =
   | { type: "step-end"; step: PlannedStep; summary: string }
   | { type: "verify-start"; model: string; attempt: number }
   | { type: "verdict"; attempt: number; metCount: number; total: number; allMet: boolean; unmet: { criterion: string; reason: string }[] }
+  | { type: "quality"; overall: number; dims: { correctness: number; completeness: number; codeQuality: number; uxPolish: number }; summary: string; judge: string }
   | { type: "escalate"; toRung: string; reason: string }
   | { type: "done"; totalCostUsd: number; totalTokens: number; calls: number; passed: boolean | null; attempts: number }
   | { type: "error"; message: string };
@@ -59,6 +62,8 @@ export interface AgentDeps {
   maxAttempts?: number;
   /** Reuse + distill reusable skill playbooks (default true). */
   skills?: boolean;
+  /** Score the delivered result's quality with an LLM judge at the end (default true). */
+  quality?: boolean;
 }
 
 interface Acc {
@@ -271,6 +276,37 @@ export async function runAgent(
       emit({ type: "skill-saved", name: res.skill.name, isNew: res.isNew, description: res.skill.description });
     } catch {
       /* learning is best-effort; never break a run */
+    }
+  }
+
+  // QUALITY: grade the delivered result every run (correctness/completeness/code/UX),
+  // report it, and persist to the DB — so quality, not just pass/fail, is tracked per
+  // model over time. Best-effort; one extra judge call (logged into this session).
+  if (deps.quality !== false) {
+    try {
+      const judge = routeOrBest("review", models, { ...deps.policy, objective: "quality", tierFloor: "standard" });
+      if (judge) {
+        const q = await scoreQuality(
+          goal,
+          plan.criteria,
+          { client, model: judge.model, cwd, allowCommands: deps.allowCommands, allowWeb: deps.allowWeb },
+          {
+            onToolCall: (name, args) => emit({ type: "tool-call", name, args }),
+            onToolResult: (name, result) => emit({ type: "tool-result", name, result }),
+            onUsage: (r) => logUsage(r, "review"),
+          }
+        );
+        if (q) {
+          emit({ type: "quality", overall: q.overall, dims: q.dims, summary: q.summary, judge: q.judge });
+          try {
+            recordQuality(deps.sessionId, q);
+          } catch {
+            /* persistence best-effort */
+          }
+        }
+      }
+    } catch {
+      /* quality scoring must never break a run */
     }
   }
 
