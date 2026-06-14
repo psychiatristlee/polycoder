@@ -106,7 +106,11 @@
   .pvbody .svgwrap svg{max-width:100%;height:auto}
   .pvbody img.pv{max-width:100%;display:block;margin:0 auto;padding:22px}
   .pvbody pre.raw{margin:0;padding:24px;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:#3a342d;line-height:1.6}
+  .katex{font-size:1.05em}
 </style>
+<link rel="stylesheet" href="node_modules/katex/dist/katex.min.css">
+<script defer src="node_modules/katex/dist/katex.min.js"></script>
+<script defer src="node_modules/katex/dist/contrib/auto-render.min.js"></script>
 </head>
 <body>
   <aside class="side">
@@ -173,10 +177,16 @@ function renderQuestion(q,options){ if(!cur) assistantStart(); busyOff();
 }
 
 async function refreshStatus(){ const s=await window.poly.status(); $("keystat").textContent="key "+(s.hasKey?"✓":"✗"); $("localstat").textContent="local "+(s.local?"✓":"✗"); }
-const ICONS={md:"📝",markdown:"📝",html:"🌐",htm:"🌐",svg:"◆",pdf:"📕",csv:"📊",xlsx:"📊",xls:"📊",json:"⚙",png:"🖼",jpg:"🖼",jpeg:"🖼",gif:"🖼",webp:"🖼"};
+const ICONS={md:"📝",markdown:"📝",html:"🌐",htm:"🌐",svg:"◆",pdf:"📕",tex:"📐",csv:"📊",xlsx:"📊",xls:"📊",json:"⚙",png:"🖼",jpg:"🖼",jpeg:"🖼",gif:"🖼",webp:"🖼"};
+const RENDERABLE=new Set(["md","markdown","html","htm","svg","pdf","tex","csv","json","xlsx","xls","png","jpg","jpeg","gif","webp"]);
+let knownFiles=null;
 function iconFor(name){ if(name.endsWith("/")) return "📁"; return ICONS[(name.split(".").pop()||"").toLowerCase()]||"📄"; }
-async function refreshFiles(){ if(!cwd) return; const files=await window.poly.listFiles(cwd); const box=$("files"); box.innerHTML=""; if(!files.length){box.innerHTML='<div class="file" style="cursor:default">(빈 폴더)</div>';return;} for(const f of files){const d=document.createElement("div");d.className="file"+(f.endsWith("/")?" dir":"");d.innerHTML='<span class="fi">'+iconFor(f)+'</span><span class="fn"></span>';d.querySelector(".fn").textContent=f; if(!f.endsWith("/")) d.onclick=()=>openPreview(cwd.replace(/\/$/,"")+"/"+f); box.appendChild(d);} }
-function setCwd(p){ cwd=p; $("folder").textContent=p; refreshFiles(); }
+async function refreshFiles(){ if(!cwd) return; const files=await window.poly.listFiles(cwd);
+  // Claude-style: when the agent creates a new renderable artifact, auto-open it.
+  if(knownFiles){ const fresh=files.filter(f=>!f.endsWith("/")&&!knownFiles.has(f)&&RENDERABLE.has((f.split(".").pop()||"").toLowerCase())); if(fresh.length) openPreview(cwd.replace(/\/$/,"")+"/"+fresh[fresh.length-1]); }
+  knownFiles=new Set(files);
+  const box=$("files"); box.innerHTML=""; if(!files.length){box.innerHTML='<div class="file" style="cursor:default">(빈 폴더)</div>';return;} for(const f of files){const d=document.createElement("div");d.className="file"+(f.endsWith("/")?" dir":"");d.innerHTML='<span class="fi">'+iconFor(f)+'</span><span class="fn"></span>';d.querySelector(".fn").textContent=f; if(!f.endsWith("/")) d.onclick=()=>openPreview(cwd.replace(/\/$/,"")+"/"+f); box.appendChild(d);} }
+function setCwd(p){ cwd=p; knownFiles=null; $("folder").textContent=p; refreshFiles(); }
 
 /* ---- markdown ---- */
 function mdToHtml(md){
@@ -199,6 +209,7 @@ function gridTable(rows){ let t='<table class="grid">'; for(const r of rows){ t+
 function parseCsv(text){ return text.replace(/\r/g,"").split("\n").filter(l=>l.length).map(l=>{const out=[];let cur="",q=false;for(let i=0;i<l.length;i++){const c=l[i];if(q){if(c==='"'&&l[i+1]==='"'){cur+='"';i++;}else if(c==='"')q=false;else cur+=c;}else{if(c==='"')q=true;else if(c===","){out.push(cur);cur="";}else cur+=c;}}out.push(cur);return out;}); }
 
 function fileUrl(p){ return "file://"+p.split("/").map(encodeURIComponent).join("/"); }
+function renderMath(el){ try{ if(window.renderMathInElement) window.renderMathInElement(el,{delimiters:[{left:"$$",right:"$$",display:true},{left:"\\[",right:"\\]",display:true},{left:"$",right:"$",display:false},{left:"\\(",right:"\\)",display:false}],throwOnError:false}); }catch(e){} }
 async function openPreview(path){
   const name=path.split("/").pop(), ext=(name.split(".").pop()||"").toLowerCase();
   const pv=$("preview"), body=$("pvbody"); $("pvname").textContent=name; $("pvic").textContent=ICONS[ext]||"◆"; pv.hidden=false;
@@ -211,7 +222,8 @@ async function openPreview(path){
     const r=await window.poly.readFile(path);
     if(!r.ok){ body.innerHTML='<pre class="raw">'+esc(r.error||"읽기 실패")+'</pre>'; return; }
     if(ext==="svg"){ body.innerHTML='<div class="svgwrap">'+r.content+'</div>'; return; }
-    if(ext==="md"||ext==="markdown"){ body.innerHTML='<div class="md">'+mdToHtml(r.content)+'</div>'; return; }
+    if(ext==="md"||ext==="markdown"){ body.innerHTML='<div class="md">'+mdToHtml(r.content)+'</div>'; renderMath(body.firstChild); return; }
+    if(ext==="tex"){ body.innerHTML='<div class="md">'+mdToHtml(r.content)+'</div>'; renderMath(body.firstChild); return; }
     if(ext==="csv"){ body.innerHTML='<div class="gridwrap">'+gridTable(parseCsv(r.content))+'</div>'; return; }
     if(ext==="json"){ let pretty=r.content; try{pretty=JSON.stringify(JSON.parse(r.content),null,2);}catch{} body.innerHTML='<pre class="raw">'+esc(pretty)+'</pre>'; return; }
     body.innerHTML='<pre class="raw">'+esc(r.content)+'</pre>';
