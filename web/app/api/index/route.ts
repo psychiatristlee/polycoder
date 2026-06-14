@@ -12,7 +12,7 @@ function clamp(v: any, min: number, max: number, d: number): number {
 }
 
 export async function POST(req: NextRequest) {
-  if (!checkAdmin(req)) {
+  if (!(await checkAdmin(req))) {
     return NextResponse.json({ error: "unauthorized — admin token required" }, { status: 401 });
   }
   try {

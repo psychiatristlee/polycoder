@@ -3,6 +3,7 @@
 // search (tsvector + GIN + ts_rank_cd) — the real-engine version of our BM25.
 import { Connector, IpAddressTypes } from "@google-cloud/cloud-sql-connector";
 import { Pool } from "pg";
+import { createHash, randomBytes } from "node:crypto";
 
 let poolPromise: Promise<Pool> | null = null;
 
@@ -44,6 +45,55 @@ async function ensureSchema(pool: Pool): Promise<void> {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_search_tsv ON search_docs USING GIN (tsv);`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_search_host ON search_docs (host);`);
+  // API keys for multiple consumers — only the SHA-256 hash is stored, never the key.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS api_keys (
+      key_hash text PRIMARY KEY,
+      label text NOT NULL DEFAULT '',
+      scope text NOT NULL DEFAULT 'search',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      revoked boolean NOT NULL DEFAULT false
+    );
+  `);
+}
+
+const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+
+export interface ApiKeyInfo {
+  label: string;
+  scope: string;
+  createdAt: string;
+  revoked: boolean;
+}
+
+/** Issue a new consumer key (returned ONCE in plaintext; only its hash is stored). */
+export async function issueApiKey(label: string, scope = "search"): Promise<{ key: string; label: string; scope: string }> {
+  const pool = await getPool();
+  const key = "pk_" + randomBytes(24).toString("base64url");
+  await pool.query(`INSERT INTO api_keys (key_hash, label, scope) VALUES ($1, $2, $3)`, [sha(key), label.slice(0, 80) || "consumer", scope]);
+  return { key, label, scope };
+}
+
+export async function listApiKeys(): Promise<ApiKeyInfo[]> {
+  const pool = await getPool();
+  const { rows } = await pool.query(`SELECT label, scope, created_at, revoked FROM api_keys ORDER BY created_at DESC`);
+  return rows.map((r: any) => ({ label: r.label, scope: r.scope, createdAt: r.created_at, revoked: r.revoked }));
+}
+
+export async function revokeApiKey(label: string): Promise<number> {
+  const pool = await getPool();
+  const { rowCount } = await pool.query(`UPDATE api_keys SET revoked=true WHERE label=$1 AND revoked=false`, [label]);
+  return rowCount ?? 0;
+}
+
+/** Is this key valid for the given scope? (admin keys also satisfy 'search'.) */
+export async function keyValid(provided: string, scope: string): Promise<boolean> {
+  if (!provided) return false;
+  const pool = await getPool();
+  const { rows } = await pool.query(`SELECT scope FROM api_keys WHERE key_hash=$1 AND revoked=false`, [sha(provided)]);
+  if (!rows.length) return false;
+  const s = rows[0].scope;
+  return s === "all" || s === scope || (scope === "search" && s === "admin");
 }
 
 export interface Hit {

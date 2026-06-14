@@ -25,6 +25,9 @@ export default function Home() {
   const [token, setToken] = useState("");
   const [searchKey, setSearchKey] = useState("");
   const [searchErr, setSearchErr] = useState("");
+  const [keys, setKeys] = useState<{ label: string; scope: string; revoked: boolean }[] | null>(null);
+  const [newLabel, setNewLabel] = useState("");
+  const [issued, setIssued] = useState("");
 
   async function loadStats(key?: string) {
     const k = (key ?? searchKey).trim();
@@ -120,6 +123,36 @@ export default function Home() {
     setIndexing(false);
   }
 
+  async function loadKeys() {
+    if (!token.trim()) return;
+    try {
+      const r = await (await fetch("/api/keys", { headers: { "x-admin-token": token.trim() } })).json();
+      setKeys(r.keys || []);
+    } catch {
+      /* ignore */
+    }
+  }
+  async function issueKey() {
+    if (!token.trim() || !newLabel.trim()) return;
+    const r = await (
+      await fetch("/api/keys", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-admin-token": token.trim() },
+        body: JSON.stringify({ label: newLabel.trim() }),
+      })
+    ).json();
+    if (r.key) {
+      setIssued(r.key);
+      setNewLabel("");
+      loadKeys();
+    }
+  }
+  async function revokeKey(label: string) {
+    if (!token.trim()) return;
+    await fetch("/api/keys?label=" + encodeURIComponent(label), { method: "DELETE", headers: { "x-admin-token": token.trim() } });
+    loadKeys();
+  }
+
   return (
     <div className="wrap">
       <h1>
@@ -191,6 +224,33 @@ export default function Home() {
           </button>
         </form>
         {idxMsg && <div className="meta">{idxMsg}</div>}
+      </details>
+
+      <details onToggle={(e) => (e.currentTarget as HTMLDetailsElement).open && loadKeys()}>
+        <summary>🔑 검색 키 발급/관리 (관리자) · 여러 소비자용</summary>
+        <div className="meta" style={{ fontSize: 12 }}>위 색인 섹션의 관리자 토큰이 필요합니다.</div>
+        <form className="idx" onSubmit={(e) => { e.preventDefault(); issueKey(); }}>
+          <input className="url" type="text" placeholder="소비자 라벨 (예: my-app, teammate-1)" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} />
+          <button className="ghost">키 발급</button>
+        </form>
+        {issued && (
+          <div className="meta">
+            새 검색 키 (한 번만 표시 — 지금 복사하세요):
+            <br />
+            <code style={{ color: "var(--grn)", wordBreak: "break-all" }}>{issued}</code>
+          </div>
+        )}
+        {keys &&
+          keys.map((k) => (
+            <div className="meta" key={k.label}>
+              {k.revoked ? "🚫" : "✅"} {k.label} <span style={{ opacity: 0.6 }}>({k.scope})</span>{" "}
+              {!k.revoked && (
+                <button className="ghost" style={{ padding: "2px 10px", fontSize: 12 }} onClick={(e) => { e.preventDefault(); revokeKey(k.label); }}>
+                  폐기
+                </button>
+              )}
+            </div>
+          ))}
       </details>
     </div>
   );
