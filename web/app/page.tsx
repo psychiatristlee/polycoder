@@ -22,6 +22,7 @@ export default function Home() {
   const [depth, setDepth] = useState("1");
   const [idxMsg, setIdxMsg] = useState("");
   const [indexing, setIndexing] = useState(false);
+  const [token, setToken] = useState("");
 
   async function loadStats() {
     try {
@@ -32,6 +33,7 @@ export default function Home() {
   }
   useEffect(() => {
     loadStats();
+    setToken(localStorage.getItem("polysearch_admin_token") || "");
     const qq = new URLSearchParams(window.location.search).get("q");
     if (qq) {
       setQ(qq);
@@ -66,16 +68,25 @@ export default function Home() {
     e.preventDefault();
     const u = url.trim();
     if (!u) return;
+    if (!token.trim()) {
+      setIdxMsg("관리자 토큰을 입력하세요 (크롤은 인증 필요).");
+      return;
+    }
+    localStorage.setItem("polysearch_admin_token", token.trim());
     setIndexing(true);
     setIdxMsg("크롤링 중… (수십 초 걸릴 수 있어요)");
     try {
-      const r = await (
-        await fetch("/api/index", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ url: u, maxPages: +maxPages, depth: +depth }),
-        })
-      ).json();
+      const res = await fetch("/api/index", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-admin-token": token.trim() },
+        body: JSON.stringify({ url: u, maxPages: +maxPages, depth: +depth }),
+      });
+      if (res.status === 401) {
+        setIdxMsg("인증 실패: 관리자 토큰이 올바르지 않습니다.");
+        setIndexing(false);
+        return;
+      }
+      const r = await res.json();
       setIdxMsg(r.error ? "오류: " + r.error : `완료: ${r.indexed}개 색인 (방문 ${r.visited})`);
       loadStats();
     } catch {
@@ -123,7 +134,14 @@ export default function Home() {
       </div>
 
       <details>
-        <summary>사이트 색인하기 (크롤 → 인덱스)</summary>
+        <summary>사이트 색인하기 (크롤 → 인덱스) · 🔒 관리자 전용</summary>
+        <input
+          type="password"
+          placeholder="관리자 토큰"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          style={{ width: "100%", marginTop: 12, padding: "10px 12px", borderRadius: 10, border: "1px solid var(--br)", background: "var(--card)", color: "var(--fg)" }}
+        />
         <form className="idx" onSubmit={doIndex}>
           <input className="url" type="text" placeholder="https://docs.example.com" value={url} onChange={(e) => setUrl(e.target.value)} />
           <input className="n" type="text" value={maxPages} onChange={(e) => setMaxPages(e.target.value)} title="max pages" />

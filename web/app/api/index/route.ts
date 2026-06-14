@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { crawl } from "@/lib/crawl";
+import { checkAdmin } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +12,9 @@ function clamp(v: any, min: number, max: number, d: number): number {
 }
 
 export async function POST(req: NextRequest) {
+  if (!checkAdmin(req)) {
+    return NextResponse.json({ error: "unauthorized — admin token required" }, { status: 401 });
+  }
   try {
     const b = await req.json();
     const seeds = String(b.url ?? "").split(/\s+/).filter(Boolean);
