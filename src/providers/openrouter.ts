@@ -148,6 +148,59 @@ export class OpenRouterClient {
   }
 
   /**
+   * Multimodal (vision) completion: a text prompt plus one or more images
+   * (data: URLs or http URLs). Used by the quality stage to score UI design from a
+   * rendered screenshot. Non-streaming; cost from the authoritative usage when present.
+   */
+  async visionComplete(
+    modelId: string,
+    prompt: { system?: string; user: string; images: string[] },
+    pricing: ModelPricing,
+    maxTokens = 1000
+  ): Promise<CompletionResult> {
+    const t = this.target(modelId);
+    this.requireKeyFor(t.isLocal);
+    const parts: any[] = [{ type: "text", text: prompt.user }];
+    for (const img of prompt.images) parts.push({ type: "image_url", image_url: { url: img } });
+    const messages: any[] = [];
+    if (prompt.system) messages.push({ role: "system", content: prompt.system });
+    messages.push({ role: "user", content: parts });
+    const body = {
+      model: t.model,
+      messages,
+      temperature: 0,
+      max_tokens: maxTokens,
+      ...(t.isLocal ? {} : { usage: { include: true } }),
+    };
+    const res = await fetch(`${t.base}/chat/completions`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new OpenRouterError(`Vision completion failed (${res.status}): ${truncate(text)}`, res.status);
+    }
+    const json = (await res.json()) as any;
+    if (json?.error) throw new OpenRouterError(json.error.message ?? "Provider error", json.error.code);
+    const choice = json.choices?.[0] ?? {};
+    const msg = choice.message ?? {};
+    const usage = {
+      promptTokens: json.usage?.prompt_tokens ?? 0,
+      completionTokens: json.usage?.completion_tokens ?? 0,
+      totalTokens: json.usage?.total_tokens ?? 0,
+    };
+    return {
+      content: typeof msg.content === "string" ? msg.content : "",
+      toolCalls: [],
+      usage,
+      model: t.isLocal ? modelId : json.model ?? modelId,
+      costUsd: computeCost(usage, pricing, t.isLocal ? undefined : json.usage?.cost),
+      finishReason: choice.finish_reason ?? null,
+    };
+  }
+
+  /**
    * Streaming completion. Yields text deltas; returns the full CompletionResult.
    * Tool-call deltas are accumulated and surfaced in the final result.
    */

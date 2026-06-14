@@ -117,9 +117,12 @@ export default function App(props: AppProps) {
           flush();
           setQuality({ overall: e.overall, summary: e.summary });
           push(
-            `📊 Quality ${e.overall}/100 · 정확${e.dims.correctness} 완성${e.dims.completeness} 코드${e.dims.codeQuality} UX${e.dims.uxPolish} · ${e.judge}`,
+            `📊 Quality ${e.overall}/100 · 정확${e.dims.correctness} 완성${e.dims.completeness} 코드${e.dims.codeQuality} UX${e.dims.uxPolish}` +
+              (e.dims.design != null ? ` 디자인${e.dims.design}🖼` : "") +
+              ` · ${e.judge}`,
             "blue"
           );
+          if (e.screenshot) push(`   🖼 ${e.screenshot}`, "gray");
           if (e.summary) push(`   ${truncate(e.summary, 110)}`, "gray");
           break;
         case "step-start":

@@ -11,7 +11,8 @@ import { planRequest, heuristicPlan, classifyGoalType } from "../planner/planner
 import type { Plan, PlannedStep } from "../planner/tasks.js";
 import { TOOL_SCHEMAS, executeTool, parseTextToolCall, type ToolContext } from "./tools.js";
 import { verifyGoal, type Verdict } from "./verify.js";
-import { scoreQuality } from "./quality.js";
+import { scoreQuality, scoreDesignVision } from "./quality.js";
+import { renderScreenshot, pngDataUrl } from "./render.js";
 import { listSkills, saveSkill, type Skill } from "../skills/store.js";
 import { matchSkill, renderSkillForPrompt } from "../skills/match.js";
 import { distill, heuristicSkill, saveOrReinforce } from "../skills/distill.js";
@@ -41,7 +42,7 @@ export type AgentEvent =
   | { type: "step-end"; step: PlannedStep; summary: string }
   | { type: "verify-start"; model: string; attempt: number }
   | { type: "verdict"; attempt: number; metCount: number; total: number; allMet: boolean; unmet: { criterion: string; reason: string }[] }
-  | { type: "quality"; overall: number; dims: { correctness: number; completeness: number; codeQuality: number; uxPolish: number }; summary: string; judge: string }
+  | { type: "quality"; overall: number; dims: { correctness: number; completeness: number; codeQuality: number; uxPolish: number; design?: number }; summary: string; judge: string; screenshot?: string }
   | { type: "escalate"; toRung: string; reason: string }
   | { type: "done"; totalCostUsd: number; totalTokens: number; calls: number; passed: boolean | null; attempts: number }
   | { type: "error"; message: string };
@@ -297,7 +298,32 @@ export async function runAgent(
           }
         );
         if (q) {
-          emit({ type: "quality", overall: q.overall, dims: q.dims, summary: q.summary, judge: q.judge });
+          // Vision augmentation: if this is a runnable web app, render it, screenshot,
+          // and let a vision model grade the actual DESIGN — then blend into the score.
+          try {
+            const render = await renderScreenshot(cwd);
+            if (render) {
+              const dataUrl = pngDataUrl(render.screenshotPath);
+              const visionModel =
+                (judge.model.capabilities.vision ? judge.model : undefined) ??
+                models.find((m) => m.capabilities.vision && !m.id.startsWith("local/")) ??
+                models.find((m) => m.capabilities.vision);
+              if (dataUrl && visionModel) {
+                const vd = await scoreDesignVision(client, visionModel, dataUrl, goal, (r) => logUsage(r, "review"));
+                if (vd) {
+                  q.dims.design = vd.design;
+                  q.dims.uxPolish = Math.round((q.dims.uxPolish + vd.polish) / 2);
+                  q.overall = Math.round(q.overall * 0.6 + vd.overall * 0.4);
+                  q.screenshot = render.screenshotPath;
+                  q.visionJudge = visionModel.id;
+                  q.summary = `${q.summary} | design: ${vd.summary}`.slice(0, 500);
+                }
+              }
+            }
+          } catch {
+            /* vision design scoring is best-effort */
+          }
+          emit({ type: "quality", overall: q.overall, dims: q.dims, summary: q.summary, judge: q.judge, screenshot: q.screenshot });
           try {
             recordQuality(deps.sessionId, q);
           } catch {

@@ -14,9 +14,62 @@ export interface QualityScore {
     completeness: number; // 0..10
     codeQuality: number; // 0..10
     uxPolish: number; // 0..10
+    design?: number; // 0..10, from a vision judge on a rendered screenshot (UI tasks)
   };
   summary: string;
   judge: string; // model id that scored
+  screenshot?: string; // path to the rendered screenshot the vision judge graded
+  visionJudge?: string; // vision model id, when design was scored
+}
+
+const VISION_SYSTEM = `You are a senior product designer grading a rendered web UI from a SCREENSHOT. Be honest and calibrated — most quick AI-built pages are mediocre; reserve 9-10 for genuinely polished, production-grade design.
+Score 0-10 each: visual_design (layout, spacing, hierarchy, balance), color (palette harmony, contrast/readability), polish (rounded cards, shadows, typography, finish), requirements_visible (how much of the asked-for content is actually visible & well-presented).
+Then overall 0-100 (holistic design quality) and a 1-2 sentence critique citing what you SEE.
+Reply with ONLY this JSON: {"visual_design":<0-10>,"color":<0-10>,"polish":<0-10>,"requirements_visible":<0-10>,"overall":<0-100>,"summary":"<what you see>"}`;
+
+export interface VisionDesign {
+  design: number; // 0..10 headline design score (= visual_design)
+  color: number;
+  polish: number;
+  requirementsVisible: number;
+  overall: number; // 0..100
+  summary: string;
+}
+
+/** Grade UI design from a rendered screenshot using a vision-capable model. */
+export async function scoreDesignVision(
+  client: OpenRouterClient,
+  model: ModelInfo,
+  imageDataUrl: string,
+  goal: string,
+  onUsage?: (r: CompletionResult) => void
+): Promise<VisionDesign | null> {
+  try {
+    const r = await client.visionComplete(
+      model.id,
+      {
+        system: VISION_SYSTEM,
+        user: `Goal of the page: ${goal}\n\nGrade the DESIGN of this rendered screenshot. Return ONLY the JSON.`,
+        images: [imageDataUrl],
+      },
+      model.pricing,
+      700
+    );
+    onUsage?.(r);
+    const json = extractJson(r.content);
+    if (!json) return null;
+    const o = JSON.parse(json) as any;
+    return {
+      design: clamp(o.visual_design ?? o.design, 10),
+      color: clamp(o.color, 10),
+      polish: clamp(o.polish, 10),
+      requirementsVisible: clamp(o.requirements_visible ?? o.requirementsVisible, 10),
+      overall: Math.round(clamp(o.overall, 100)),
+      summary: String(o.summary ?? "").slice(0, 400),
+    };
+  } catch {
+    return null;
+  }
 }
 
 export interface QualityEvents {
