@@ -1,0 +1,12 @@
+{
+  "name": "polymac",
+  "version": "0.1.0",
+  "description": "Polymac — a macOS desktop app that edits files & codes via the poly agent",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^32.2.0"
+  }
+}

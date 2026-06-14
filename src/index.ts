@@ -22,6 +22,7 @@ import { crawl as crawlSite } from "./search/crawl.js";
 import { serveSearch, installLaunchAgent } from "./search/server.js";
 import { logCompletion } from "./usage/logger.js";
 import { route } from "./router/router.js";
+import { runAgent, type AgentDeps, type AgentEvent } from "./agent/loop.js";
 import { ALL_TASK_TYPES } from "./planner/tasks.js";
 import type { RoutingObjective, RoutingPolicy } from "./router/policy.js";
 import { blendedPrice } from "./router/policy.js";
@@ -461,6 +462,9 @@ cfg
       case "maxcost":
         config.maxCostPerCallUsd = parseFloat(value);
         break;
+      case "apikey":
+        config.openrouterApiKey = value;
+        break;
       case "explore":
         config.exploreRate = Math.min(Math.max(parseFloat(value) || 0, 0), 1);
         break;
@@ -549,6 +553,52 @@ cfg
           `(service ${config.dataconnect.serviceId} @ ${config.dataconnect.location}).`
       )
     );
+  });
+
+// ---- agent (headless; streams JSON events for the desktop app) --------------
+program
+  .command("agent")
+  .description("Headless agent: run a goal and stream JSON events (one per line). Used by the desktop app/automation.")
+  .argument("<goal...>", "what to do")
+  .option("-o, --objective <name>", "cheapest | value | quality")
+  .option("-w, --write", "allow file writes (confined to --cwd)", false)
+  .option("-x, --commands", "allow shell commands in --cwd", false)
+  .option("-W, --web", "allow web_search + web_fetch", false)
+  .option("-C, --cwd <dir>", "working directory", process.cwd())
+  .option("--no-free", "exclude $0 OpenRouter free-tier models (rate-limited)")
+  .option("--no-verify", "single pass, no verify/escalate")
+  .option("--no-skills", "don't reuse/learn skills")
+  .option("--no-quality", "skip the quality score")
+  .option("--max-attempts <n>", "max attempts", "3")
+  .action(async (goalParts: string[], opts) => {
+    const startedAt = Date.now();
+    const config = loadConfig();
+    const models = await loadCatalog(config);
+    const policy = buildPolicy(config, opts);
+    const goal = goalParts.join(" ");
+    const sessionId = randomUUID();
+    const deps: AgentDeps = {
+      client: client(config),
+      models,
+      policy,
+      sessionId,
+      cwd: opts.cwd,
+      allowWrite: !!opts.write,
+      allowCommands: !!opts.commands,
+      allowWeb: !!opts.web,
+      verify: opts.verify !== false,
+      maxAttempts: Math.max(1, parseInt(opts.maxAttempts, 10) || 3),
+      skills: config.skills.enabled && opts.skills !== false,
+      quality: opts.quality !== false,
+    };
+    const emit = (e: AgentEvent) => process.stdout.write(JSON.stringify(e) + "\n");
+    try {
+      await runAgent(goal, deps, emit);
+    } catch (e: any) {
+      emit({ type: "error", message: e?.message ?? String(e) });
+    }
+    const totals = sessionUsageTotals(sessionId);
+    trackCommand({ command: "agent", startedAt, sessionId, args: goal, objective: policy.objective, ...totals });
   });
 
 // ---- search (local self-owned engine) --------------------------------------

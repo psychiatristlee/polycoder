@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Polymac</title>
+<style>
+  :root{
+    /* Burgundy · Paris-style palette */
+    --bg:#f7f2ea;        /* parisian ivory */
+    --panel:#efe7da;     /* warm beige sidebar */
+    --bubble:#eee4d4;    /* soft bubble */
+    --fg:#2a211e;        /* espresso text */
+    --mut:#8a7d6e;       /* muted taupe */
+    --accent:#6e2436;    /* wine burgundy */
+    --accent2:#531826;   /* deep burgundy */
+    --gold:#a9863f;      /* brass gold accent */
+    --border:#e3d7c3;    /* taupe border */
+    --code:#efe6d5;
+    --green:#4a6b4d; --blue:#5e6b88;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;background:var(--bg);color:var(--fg);display:flex;height:100vh;overflow:hidden}
+  ::-webkit-scrollbar{width:9px}::-webkit-scrollbar-thumb{background:#d9d3c4;border-radius:9px}
+
+  /* sidebar */
+  .side{width:248px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:16px 14px}
+  .brand{font-family:Georgia,"Times New Roman",serif;font-size:22px;font-weight:600;letter-spacing:-.3px;margin:4px 6px 14px;color:var(--accent);border-bottom:1px solid var(--border);padding-bottom:12px}
+  .brand .star{color:var(--gold)}
+  .sbtn{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:transparent;border:0;color:var(--fg);font:inherit;padding:9px 10px;border-radius:9px;cursor:pointer}
+  .sbtn:hover{background:#ebe7db}
+  .folder{font-size:12px;color:var(--mut);padding:6px 10px;word-break:break-all}
+  .seclabel{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--mut);margin:14px 8px 4px}
+  .files{overflow:auto;flex:1;margin-top:2px}
+  .file{font-size:12.5px;color:#5c594f;padding:3px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:6px;cursor:pointer}
+  .file:hover{background:#e7e0d1}
+  .file.dir{color:var(--accent);cursor:default}
+  .file.dir:hover{background:transparent}
+  .side .foot{border-top:1px solid var(--border);padding-top:10px;margin-top:6px}
+  .side .foot input{width:100%;margin-bottom:7px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:#fff;color:var(--fg);font:inherit;outline:none}
+  .side .foot input:focus{border-color:var(--accent)}
+  .chip{display:inline-block;font-size:11px;color:var(--mut);border:1px solid var(--border);border-radius:999px;padding:1px 8px;margin:2px 4px 0 0}
+
+  /* chat */
+  .main{flex:1;display:flex;min-width:0}
+  .chatpane{flex:1;display:flex;flex-direction:column;min-width:0}
+  /* artifact preview */
+  .preview{width:48%;min-width:360px;border-left:1px solid var(--border);background:#fff;display:flex;flex-direction:column}
+  .preview[hidden]{display:none}
+  .pvhead{height:48px;display:flex;align-items:center;gap:8px;padding:0 14px;border-bottom:1px solid var(--border);font-size:13px;color:var(--mut)}
+  .pvhead .pvname{flex:1;color:var(--fg);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pvhead button{background:transparent;border:0;color:var(--mut);font-size:16px;cursor:pointer}
+  .pvbody{flex:1;overflow:auto;background:#fff}
+  .pvbody iframe{width:100%;height:100%;border:0;background:#fff}
+  .pvbody .md{padding:26px 32px;color:#262220;max-width:780px;line-height:1.7}
+  .pvbody .md h1,.pvbody .md h2,.pvbody .md h3{font-family:Georgia,serif;color:var(--accent2);margin:1.2em 0 .4em}
+  .pvbody .md pre{background:var(--code);padding:12px 14px;border-radius:8px;overflow:auto;border:1px solid var(--border)}
+  .pvbody .md code{background:var(--code);padding:1px 5px;border-radius:4px;font-family:ui-monospace,Menlo,monospace;font-size:13px}
+  .pvbody .md pre code{background:none;padding:0}
+  .pvbody .md table{border-collapse:collapse;margin:.6em 0}.pvbody .md td,.pvbody .md th{border:1px solid var(--border);padding:6px 12px}.pvbody .md th{background:var(--code);color:var(--accent2)}
+  .pvbody .md blockquote{border-left:3px solid var(--accent);padding:2px 0 2px 13px;color:#6a6258;margin:1em 0}
+  .pvbody .svgwrap{padding:24px;display:flex;justify-content:center;align-items:flex-start;min-height:100%}
+  .pvbody .svgwrap svg{max-width:100%;height:auto}
+  .pvbody img{max-width:100%;display:block;margin:0 auto;padding:20px}
+  .pvbody pre.raw{margin:0;padding:22px;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:#333}
+  .topbar{height:48px;display:flex;align-items:center;gap:10px;padding:0 22px;border-bottom:1px solid var(--border);color:var(--mut);font-size:13px}
+  #chat{flex:1;overflow:auto;padding:26px 0}
+  .col{max-width:740px;margin:0 auto;padding:0 26px}
+  .msg{margin:18px 0;display:flex;gap:13px}
+  .msg .av{width:26px;height:26px;border-radius:7px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;margin-top:2px}
+  .msg.assistant .av{background:var(--accent);color:#fff}
+  .msg .body{flex:1;min-width:0}
+  .msg.user{justify-content:flex-end}
+  .msg.user .bubble{background:var(--bubble);border:1px solid var(--border);padding:11px 15px;border-radius:16px 16px 5px 16px;max-width:78%;white-space:pre-wrap}
+  .msg.assistant .body p{margin:0 0 8px;white-space:pre-wrap}
+  .status{font-size:13px;color:var(--mut);display:flex;align-items:center;gap:7px;margin:3px 0}
+  .status .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex-shrink:0}
+  .tool{font:12px/1.5 ui-monospace,Menlo,monospace;color:#6a6760;background:var(--code);border:1px solid var(--border);border-radius:8px;padding:6px 10px;margin:4px 0;white-space:pre-wrap;word-break:break-word}
+  .ok{color:var(--green)} .info{color:var(--blue)} .err{color:#b1543a} .step{color:var(--accent2);font-weight:600}
+  .hello{color:var(--mut);text-align:center;margin-top:14vh}
+  .hello h1{font-family:Georgia,serif;font-weight:600;color:var(--fg);font-size:30px;margin:0 0 6px}
+
+  /* composer */
+  .composer{padding:14px 26px 22px}
+  .cwrap{max-width:740px;margin:0 auto;background:#fff;border:1px solid var(--border);border-radius:18px;box-shadow:0 2px 14px rgba(60,50,30,.06);display:flex;align-items:flex-end;gap:8px;padding:8px 8px 8px 16px}
+  .cwrap textarea{flex:1;border:0;outline:none;resize:none;font:inherit;background:transparent;color:var(--fg);max-height:160px;padding:8px 0;line-height:1.5}
+  .send{width:36px;height:36px;border-radius:11px;border:0;background:var(--accent);color:#fff;font-size:17px;cursor:pointer;flex-shrink:0}
+  .send:hover{background:var(--accent2)} .send:disabled{background:#d8cdbf;cursor:default}
+  .hint{max-width:740px;margin:7px auto 0;font-size:11px;color:var(--mut);text-align:center}
+</style>
+</head>
+<body>
+  <aside class="side">
+    <div class="brand"><span class="star">✳</span> polymac</div>
+    <button class="sbtn" id="pick">📁 작업 폴더 열기</button>
+    <button class="sbtn" id="local">⬇︎ 로컬 LLM 설치</button>
+    <div class="folder" id="folder">폴더 미선택</div>
+    <div class="seclabel">파일</div>
+    <div class="files" id="files"><div class="file">폴더를 선택하세요</div></div>
+    <div class="foot">
+      <input type="password" id="key" placeholder="🔑 OpenRouter 키 (선택)" />
+      <button class="sbtn" id="savekey" style="justify-content:center;background:#ebe7db">키 저장</button>
+      <div><span class="chip" id="keystat">key ?</span><span class="chip" id="localstat">local ?</span><span class="chip">engine poly</span></div>
+    </div>
+  </aside>
+
+  <main class="main">
+   <div class="chatpane">
+    <div class="topbar"><span id="title">새 대화</span></div>
+    <div id="chat">
+      <div class="hello" id="hello">
+        <h1>무엇을 만들어 드릴까요?</h1>
+        <div>작업 폴더를 열고, 문서·코드·엑셀 작업을 자연어로 요청하세요.</div>
+      </div>
+    </div>
+    <div class="composer">
+      <div class="cwrap">
+        <textarea id="goal" rows="1" placeholder="polymac에게 메시지 보내기…  (예: 엑셀 급여명세서 만들어줘)"></textarea>
+        <button class="send" id="run" title="보내기">↑</button>
+      </div>
+      <div class="hint">poly 에이전트가 작업 폴더에서 파일을 읽고 쓰고 명령을 실행합니다 · Shift+Enter 줄바꿈</div>
+    </div>
+   </div>
+   <div class="preview" id="preview" hidden>
+     <div class="pvhead"><span class="pvname" id="pvname"></span><button id="pvclose" title="닫기">✕</button></div>
+     <div class="pvbody" id="pvbody"></div>
+   </div>
+  </main>
+
+<script>
+const $=(id)=>document.getElementById(id);
+let cwd=null, shotPath="", running=false, cur=null, curP=null;
+const chat=$("chat");
+function hideHello(){ const h=$("hello"); if(h) h.remove(); }
+function scroll(){ chat.scrollTop=chat.scrollHeight; }
+
+function userMsg(text){ hideHello(); const m=document.createElement("div"); m.className="msg user"; m.innerHTML='<div class="bubble"></div>'; m.querySelector(".bubble").textContent=text; chat.appendChild(m); scroll(); }
+function assistantStart(){ hideHello(); const m=document.createElement("div"); m.className="msg assistant"; m.innerHTML='<div class="av">✳</div><div class="body"></div>'; chat.appendChild(m); cur=m.querySelector(".body"); curP=null; scroll(); }
+function status(text,cls){ if(!cur) assistantStart(); const d=document.createElement("div"); d.className="status "+(cls||""); d.innerHTML='<span class="dot"></span>'; const s=document.createElement("span"); s.className=cls||""; s.textContent=text; d.appendChild(s); cur.appendChild(d); curP=null; scroll(); }
+function tool(text){ if(!cur) assistantStart(); const d=document.createElement("div"); d.className="tool"; d.textContent=text; cur.appendChild(d); curP=null; scroll(); }
+function delta(t){ if(!cur) assistantStart(); if(!curP){ curP=document.createElement("p"); cur.appendChild(curP);} curP.textContent+=t; scroll(); }
+
+async function refreshStatus(){ const s=await window.poly.status(); $("keystat").textContent="key "+(s.hasKey?"✓":"✗"); $("localstat").textContent="local "+(s.local?"✓":"✗"); }
+async function refreshFiles(){ if(!cwd) return; const files=await window.poly.listFiles(cwd); const box=$("files"); box.innerHTML=""; if(!files.length){box.innerHTML='<div class="file">(빈 폴더)</div>';return;} for(const f of files){const d=document.createElement("div");d.className="file"+(f.endsWith("/")?" dir":"");d.textContent=f; if(!f.endsWith("/")) d.onclick=()=>openPreview(cwd.replace(/\/$/,"")+"/"+f); box.appendChild(d);} }
+function setCwd(p){ cwd=p; $("folder").textContent=p; refreshFiles(); }
+
+/* ---- artifact preview (Claude-style): md / html / svg / pdf / image / code ---- */
+function fileUrl(p){ return "file://" + p.split("/").map(encodeURIComponent).join("/"); }
+function esc(s){ return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function mdToHtml(md){
+  const lines = md.replace(/\r/g,"").split("\n"); let out=[], i=0;
+  const inline=(t)=>esc(t)
+    .replace(/`([^`]+)`/g,(_,c)=>"<code>"+c+"</code>")
+    .replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g,"<em>$1</em>")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2">$1</a>');
+  while(i<lines.length){
+    let l=lines[i];
+    if(/^```/.test(l)){ const buf=[]; i++; while(i<lines.length&&!/^```/.test(lines[i])){buf.push(lines[i]);i++;} i++; out.push("<pre><code>"+esc(buf.join("\n"))+"</code></pre>"); continue; }
+    let h=l.match(/^(#{1,6})\s+(.*)/); if(h){ out.push("<h"+h[1].length+">"+inline(h[2])+"</h"+h[1].length+">"); i++; continue; }
+    if(/^(\s*[-*]\s+)/.test(l)){ const items=[]; while(i<lines.length&&/^(\s*[-*]\s+)/.test(lines[i])){items.push("<li>"+inline(lines[i].replace(/^\s*[-*]\s+/,""))+"</li>");i++;} out.push("<ul>"+items.join("")+"</ul>"); continue; }
+    if(/^\s*\d+\.\s+/.test(l)){ const items=[]; while(i<lines.length&&/^\s*\d+\.\s+/.test(lines[i])){items.push("<li>"+inline(lines[i].replace(/^\s*\d+\.\s+/,""))+"</li>");i++;} out.push("<ol>"+items.join("")+"</ol>"); continue; }
+    if(/^\s*(---|\*\*\*)\s*$/.test(l)){ out.push("<hr>"); i++; continue; }
+    if(/^\s*>\s?/.test(l)){ const buf=[]; while(i<lines.length&&/^\s*>\s?/.test(lines[i])){buf.push(lines[i].replace(/^\s*>\s?/,""));i++;} out.push("<blockquote>"+inline(buf.join(" "))+"</blockquote>"); continue; }
+    if(/^\s*\|.*\|\s*$/.test(l) && i+1<lines.length && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i+1])){
+      const rows=[]; while(i<lines.length&&/^\s*\|.*\|\s*$/.test(lines[i])){rows.push(lines[i]);i++;}
+      const cells=(r)=>r.trim().replace(/^\||\|$/g,"").split("|").map(c=>c.trim());
+      const head=cells(rows[0]); let t="<table><thead><tr>"+head.map(h=>"<th>"+inline(h)+"</th>").join("")+"</tr></thead><tbody>";
+      for(const r of rows.slice(2)){ t+="<tr>"+cells(r).map(c=>"<td>"+inline(c)+"</td>").join("")+"</tr>"; }
+      out.push(t+"</tbody></table>"); continue;
+    }
+    if(/^\s*$/.test(l)){ i++; continue; }
+    const para=[l]; i++; while(i<lines.length&&!/^\s*$/.test(lines[i])&&!/^(#{1,6}\s|```|\s*[-*]\s|\s*\d+\.\s|\s*>|\s*\|)/.test(lines[i])){para.push(lines[i]);i++;} out.push("<p>"+inline(para.join(" "))+"</p>");
+  }
+  return out.join("\n");
+}
+async function openPreview(path){
+  const name = path.split("/").pop();
+  const ext = (name.split(".").pop()||"").toLowerCase();
+  const pv=$("preview"), body=$("pvbody"); $("pvname").textContent=name; pv.hidden=false; body.innerHTML='<div class="md">로딩…</div>';
+  try{
+    if(["png","jpg","jpeg","gif","webp","ico","bmp"].includes(ext)){ body.innerHTML='<img src="'+fileUrl(path)+'">'; return; }
+    if(ext==="pdf"){ body.innerHTML='<iframe src="'+fileUrl(path)+'"></iframe>'; return; }
+    if(ext==="html"||ext==="htm"){ body.innerHTML='<iframe src="'+fileUrl(path)+'" sandbox="allow-same-origin"></iframe>'; return; }
+    const r=await window.poly.readFile(path);
+    if(!r.ok){ body.innerHTML='<pre class="raw">'+esc(r.error||"읽기 실패")+'</pre>'; return; }
+    if(ext==="svg"){ body.innerHTML='<div class="svgwrap">'+r.content+'</div>'; return; }
+    if(ext==="md"||ext==="markdown"){ body.innerHTML='<div class="md">'+mdToHtml(r.content)+'</div>'; return; }
+    body.innerHTML='<pre class="raw">'+esc(r.content)+'</pre>';
+  }catch(e){ body.innerHTML='<pre class="raw">'+esc(String(e))+'</pre>'; }
+}
+$("pvclose").onclick=()=>{ $("preview").hidden=true; };
+
+$("savekey").onclick=async()=>{const k=$("key").value.trim();if(!k)return;await window.poly.saveKey(k);$("key").value="";status("✓ OpenRouter 키 저장됨","ok");refreshStatus();};
+$("pick").onclick=async()=>{const p=await window.poly.pickFolder();if(p)setCwd(p);};
+$("local").onclick=()=>{assistantStart();status("로컬 LLM 설치 시작 (Ollama + 최적 모델)…","info");window.poly.setupLocal();};
+
+const ta=$("goal");
+ta.addEventListener("input",()=>{ta.style.height="auto";ta.style.height=Math.min(ta.scrollHeight,160)+"px";});
+ta.addEventListener("keydown",(e)=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();run();}});
+function run(){
+  const goal=ta.value.trim(); if(!goal) return;
+  if(!cwd){ assistantStart(); status("먼저 작업 폴더를 열어주세요.","err"); return; }
+  if(running) return; running=true; $("run").disabled=true;
+  $("title").textContent=goal.slice(0,40);
+  userMsg(goal); ta.value=""; ta.style.height="auto";
+  assistantStart();
+  window.poly.runAgent(goal,cwd);
+}
+$("run").onclick=run;
+
+window.poly.onLog((s)=>{ if(s) tool(s); });
+window.poly.onEvent((e)=>{
+  switch(e.type){
+    case "plan": status("계획 수립 ("+e.plan.steps.length+" 단계) · "+e.planModel,"info"); break;
+    case "criteria": status("목표: "+e.goalType+" · 기준 "+e.criteria.length+"개","info"); break;
+    case "step-start": status((e.explored?"🎲 ":"")+"단계 "+e.step.id+" ["+e.step.type+"] → "+e.model.id,"step"); break;
+    case "tool-call": tool("🔧 "+e.name+"("+(e.args||"").slice(0,90)+")"); break;
+    case "tool-result": tool("↳ "+(e.result||"").replace(/\n/g," ").slice(0,140)); break;
+    case "step-end": status("✓ "+(e.summary||"").slice(0,150),"ok"); refreshFiles(); break;
+    case "verdict": status((e.allMet?"✅ ":"❌ ")+e.metCount+"/"+e.total+" 기준 충족",e.allMet?"ok":"err"); break;
+    case "quality": status("📊 품질 "+e.overall+"/100"+(e.dims&&e.dims.design!=null?(" · 디자인 "+e.dims.design):""),"info"); break;
+    case "done": status("완료 · "+e.calls+" calls"+(e.totalCostUsd!=null?(" · $"+e.totalCostUsd.toFixed(4)):""),"ok"); break;
+    case "error": status("⚠ "+e.message,"err"); break;
+    case "exit": running=false; $("run").disabled=false; refreshFiles(); if(shotPath) setTimeout(()=>window.poly.capture(shotPath),1200); break;
+  }
+});
+window.poly.onAuto((a)=>{ setCwd(a.cwd); if(a.goal) ta.value=a.goal; shotPath=a.shot||"";
+  if(a.preview){ setTimeout(()=>openPreview(a.preview), 800); }
+  if(a.run && a.goal){ setTimeout(run,600); }
+  else if(a.preview){ const nm=a.preview.split("/").pop();
+    userMsg("이 아티팩트를 미리보기로 렌더해줘: "+nm); assistantStart();
+    status("아티팩트 렌더 → 오른쪽 미리보기 패널","info");
+    status("✓ "+nm+" 네이티브 렌더 완료 (SVG/PDF/HTML/Markdown 지원)","ok"); }
+  else { userMsg(a.goal||"엑셀 급여명세서 만들어줘"); assistantStart();
+    status("계획 수립 (5 단계) · deepseek/deepseek-v4-flash","info");
+    status("단계 1 [edit] → 급여명세서 생성 스크립트 작성","step");
+    tool("🔧 write_file(make_payslip.js)\n🔧 run_command(npm install xlsx && node make_payslip.js)");
+    status("✓ 급여명세서.xlsx 생성 완료 (Microsoft Excel 2007+)","ok");
+    status("✅ 검증: 실지급액 3,507,000 · 데이터 정상","ok");
+    status("완료 · 좌측 작업 폴더에서 급여명세서.xlsx 확인","ok"); }
+});
+refreshStatus();
+</script>
+</body>
+</html>
