@@ -60,7 +60,7 @@ export async function searchDocs(q: string, k = 20): Promise<Hit[]> {
     `SELECT url, title, host,
             ts_rank_cd(tsv, websearch_to_tsquery('simple', $1)) AS score,
             ts_headline('simple', body, websearch_to_tsquery('simple', $1),
-              'MaxFragments=1,MaxWords=34,MinWords=12,ShortWord=2,StartSel=,StopSel=') AS snippet
+              'MaxFragments=1,MaxWords=34,MinWords=12,ShortWord=2,HighlightAll=false') AS snippet
        FROM search_docs
       WHERE tsv @@ websearch_to_tsquery('simple', $1)
       ORDER BY score DESC
@@ -72,7 +72,7 @@ export async function searchDocs(q: string, k = 20): Promise<Hit[]> {
     title: r.title || r.url,
     host: r.host,
     score: Number(r.score),
-    snippet: (r.snippet || "").replace(/\s+/g, " ").trim(),
+    snippet: (r.snippet || "").replace(/<\/?b>/g, "").replace(/\s+/g, " ").trim(),
   }));
 }
 

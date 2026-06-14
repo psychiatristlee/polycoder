@@ -32,11 +32,16 @@ export default function Home() {
   }
   useEffect(() => {
     loadStats();
+    const qq = new URLSearchParams(window.location.search).get("q");
+    if (qq) {
+      setQ(qq);
+      runSearch(qq);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function go(e: FormEvent) {
-    e.preventDefault();
-    const term = q.trim();
+  async function runSearch(term: string) {
+    term = term.trim();
     if (!term) return;
     setLoading(true);
     setHits(null);
@@ -47,6 +52,14 @@ export default function Home() {
       setHits([]);
     }
     setLoading(false);
+  }
+
+  async function go(e: FormEvent) {
+    e.preventDefault();
+    const term = q.trim();
+    if (!term) return;
+    if (typeof window !== "undefined") window.history.replaceState(null, "", "/?q=" + encodeURIComponent(term));
+    runSearch(term);
   }
 
   async function doIndex(e: FormEvent) {
