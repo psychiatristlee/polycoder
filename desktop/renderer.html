@@ -354,13 +354,19 @@
 
 <script>
 const $=(id)=>document.getElementById(id);
-let cwd=null, shotPath="", running=false, cur=null, curP=null, spinnerRow=null, curTerm=null, lastTool="";
+let cwd=null, shotPath="", running=false, cur=null, curP=null, spinnerRow=null, curTerm=null, lastTool="", installing=false;
+function beginInstall(label, fn){
+  if(installing){ showView("chat"); status("이미 설치가 진행 중이에요 — 끝날 때까지 기다려 주세요.","info"); return; }
+  installing=true; showView("chat"); assistantStart(); status(label,"info"); busyOn("설치/다운로드 중… 수 분 걸릴 수 있어요"); fn();
+}
 const chat=$("chat");
 function hideHello(){ const h=$("hello"); if(h) h.remove(); }
-function scroll(){ chat.scrollTop=chat.scrollHeight; }
+// Only auto-pin to the bottom if the user is already near it — so scrolling up to read
+// during a long terminal run isn't yanked back down. Pass force=true to always jump.
+function scroll(force){ const gap=chat.scrollHeight-chat.scrollTop-chat.clientHeight; if(force||gap<120) chat.scrollTop=chat.scrollHeight; }
 function esc(s){ return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
 
-function userMsg(text){ hideHello(); const m=document.createElement("div"); m.className="msg user"; m.innerHTML='<div class="bubble"></div>'; m.querySelector(".bubble").textContent=text; chat.appendChild(m); scroll(); }
+function userMsg(text){ hideHello(); const m=document.createElement("div"); m.className="msg user"; m.innerHTML='<div class="bubble"></div>'; m.querySelector(".bubble").textContent=text; chat.appendChild(m); scroll(true); }
 function assistantStart(){ hideHello(); const m=document.createElement("div"); m.className="msg assistant"; m.innerHTML='<div class="av">P</div><div class="body"></div>'; chat.appendChild(m); cur=m.querySelector(".body"); curP=null; curTerm=null; scroll(); }
 // Console box: stream command/terminal output into one collapsible box instead of N chat rows.
 function termBox(label){ if(!cur) assistantStart();
@@ -371,6 +377,7 @@ function termBox(label){ if(!cur) assistantStart();
 }
 function termLine(text,isErr){ if(!curTerm) termBox("터미널");
   const body=curTerm.querySelector(".termbody");
+  const bAtBottom = body.scrollHeight-body.scrollTop-body.clientHeight < 40;
   for(let ln of String(text).split("\n")){ ln=ln.replace(/\r/g,""); if(ln==="") continue;
     const prog=/[█▓▒░]|\d+(\.\d+)?\s?[KMG]B\s?\/|^[-\\|/]+$|%$|\d+%/.test(ln);
     const last=body.lastElementChild;
@@ -379,7 +386,8 @@ function termLine(text,isErr){ if(!curTerm) termBox("터미널");
   }
   while(body.childElementCount>600) body.removeChild(body.firstChild);
   const tg=curTerm.querySelector(".tg"); if(tg) tg.textContent=body.childElementCount+" 줄";
-  body.scrollTop=body.scrollHeight; scroll();
+  if(bAtBottom) body.scrollTop=body.scrollHeight;   // only follow if user was at the bottom
+  scroll();   // chat-level: smart (won't yank if scrolled up)
 }
 function status(text,cls){ if(!cur) assistantStart(); const d=document.createElement("div"); d.className="status "+(cls||""); const dot=document.createElement("span"); dot.className="dot"; const s=document.createElement("span"); s.className=cls||""; s.textContent=text; d.appendChild(dot); d.appendChild(s); cur.appendChild(d); curP=null; scroll(); return d; }
 function tool(text){ if(!cur) assistantStart(); const d=document.createElement("div"); d.className="tool"; d.textContent=text; cur.appendChild(d); curP=null; scroll(); }
@@ -409,7 +417,7 @@ $("loginsave").onclick=async()=>{ const k=$("loginkey").value.trim();
   if(ok){ $("loginkey").value=""; $("loginmsg").textContent=""; await refreshStatus(); if(hasKey) $("loginmask").hidden=true; }
   else $("loginmsg").textContent="저장 실패. 다시 시도해 주세요."; };
 $("loginkey").addEventListener("keydown",(e)=>{ if(e.key==="Enter") $("loginsave").click(); });
-$("loginlocal").onclick=()=>{ $("loginmask").hidden=true; showView("chat"); assistantStart(); busyOn("로컬 LLM 설치 중 (Ollama + 최적 모델)… 수 분 걸릴 수 있어요"); window.poly.setupLocal(); };
+$("loginlocal").onclick=()=>{ $("loginmask").hidden=true; beginInstall("🧠 로컬 LLM 설치 (Ollama + 최적 모델)", ()=>window.poly.setupLocal()); };
 $("getkey").onclick=(e)=>{ e.preventDefault(); window.poly.openExternal("https://openrouter.ai/keys"); };
 // Clicking the key/local chips reopens the login screen.
 document.querySelector(".chips")?.addEventListener("click",()=>{ if(!hasKey && !hasLocal) openLogin(); });
@@ -479,7 +487,7 @@ $("pvclose").onclick=()=>{ $("preview").hidden=true; };
 /* ---- onboarding + run ---- */
 $("savekey").onclick=async()=>{const k=$("key").value.trim();if(!k)return;await window.poly.saveKey(k);$("key").value="";assistantStart();status("✓ OpenRouter 키 저장됨","ok");refreshStatus();};
 $("pick").onclick=async()=>{const p=await window.poly.pickFolder();if(p)setCwd(p);};
-$("local").onclick=()=>{assistantStart();busyOn("로컬 LLM 설치 중 (Ollama + 최적 모델)…");window.poly.setupLocal();};
+$("local").onclick=()=>beginInstall("🧠 로컬 LLM 설치 (Ollama + 최적 모델)", ()=>window.poly.setupLocal());
 
 const ta=$("goal");
 ta.addEventListener("input",()=>{ta.style.height="auto";ta.style.height=Math.min(ta.scrollHeight,170)+"px";});
@@ -533,7 +541,7 @@ window.poly.onLog((s)=>{ if(!s) return;
   const err=/error|실패|failed|0x[0-9a-f]{6,}|not on PATH|예기치 않은/i.test(s);
   termLine(s, err);   // stream into the console box, not the chat
   if(/setup finished|설치 (완료|끝)|Setup complete/i.test(s)){
-    busyOff();
+    busyOff(); installing=false;
     refreshStatus().then(()=>{
       if(hasLocal){ $("loginmask").hidden=true; status("✓ 로컬 모델 준비 완료 — 키 없이 바로 실행할 수 있어요. 메시지를 입력하세요.","ok"); try{ta.focus();}catch{} }
       else { status("⚠ 로컬 LLM 설치가 끝나지 않았어요 (위 콘솔 참고). OpenRouter 키를 넣거나 수동 설치가 필요합니다.","err"); openLogin(); }
@@ -617,9 +625,9 @@ function modelRowEl(m){
   else { const b=document.createElement("span"); b.className="badge off"; b.textContent="용량 부족"; ma.appendChild(b); }
   row.appendChild(mi); row.appendChild(ma); return row;
 }
-function installModel(id,label){ showView("chat"); assistantStart(); status("🧠 모델 설치: "+(label||id),"info"); busyOn("다운로드 중… 수 분 걸릴 수 있어요"); window.poly.localPull(id); }
+function installModel(id,label){ beginInstall("🧠 모델 설치: "+(label||id), ()=>window.poly.localPull(id)); }
 async function removeModel(id){ await window.poly.localRm(id); loadModels(); refreshStatus(); }
-window.poly.onLocalPullDone((d)=>{ busyOff(); refreshStatus().then(()=>{ $("loginmask").hidden = hasKey||hasLocal ? true : false;
+window.poly.onLocalPullDone((d)=>{ busyOff(); installing=false; refreshStatus().then(()=>{ $("loginmask").hidden = hasKey||hasLocal ? true : false;
   status(d.ok?("✓ 모델 설치 완료: "+d.id+" — 이제 poly가 작업에 따라 자동 선택합니다."):("⚠ 모델 설치 실패: "+d.id+" (위 콘솔 참고)"), d.ok?"ok":"err"); });
 });
 
