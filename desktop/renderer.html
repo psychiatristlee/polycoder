@@ -130,6 +130,8 @@
   .qopt:disabled{opacity:.55;cursor:default}
   .ok{color:var(--green)} .info{color:var(--blue)} .err{color:var(--accent2)} .step{color:var(--accent2);font-weight:600}
   .qpend{max-width:720px;margin:2px auto 8px;padding:0 28px;font-size:12px;color:var(--soft);text-align:right}
+  .meter{display:inline-block;margin:6px 0;font-size:12px;color:var(--mut);background:var(--code);border:1px solid var(--border);border-radius:999px;padding:3px 12px;font-variant-numeric:tabular-nums;letter-spacing:.2px}
+  .meter.done{color:var(--green);border-color:rgba(74,107,77,.3);background:rgba(74,107,77,.08);font-weight:600}
   .runrow{margin:8px 0}
   .runbtn{background:var(--accent);color:#fff;border:0;padding:9px 18px;border-radius:11px;font-size:13.5px;font-weight:600;box-shadow:var(--shadow)}
   .runbtn:hover{background:var(--accent2)}
@@ -910,9 +912,24 @@ function run(){ const goal=ta.value.trim(); if(!goal && !attachments.length) ret
   if(supMode){ startSuperviseChat(goal); return; }   // supervision is a chat mode
   startRun(goal,atts,label);
 }
+// Live run meter: elapsed time + tokens used + estimated cost, ticking every second,
+// finalized when the run completes so the user can see how long / how much it cost.
+let runStart=0, runTokens=0, runCost=0, meterEl=null, meterTimer=null;
+function fmtSecs(s){ return s<60 ? s.toFixed(1)+"s" : Math.floor(s/60)+"m "+Math.round(s%60)+"s"; }
+function meterText(prefix){ const s=runStart?((Date.now()-runStart)/1000):0;
+  return (prefix||"")+"⏱ "+fmtSecs(s)+" · 🔢 "+runTokens.toLocaleString()+" 토큰 · 💲$"+runCost.toFixed(4); }
+function startMeter(){ runStart=Date.now(); runTokens=0; runCost=0;
+  if(!cur) assistantStart();
+  meterEl=document.createElement("div"); meterEl.className="meter"; meterEl.textContent=meterText(); cur.appendChild(meterEl);
+  clearInterval(meterTimer); meterTimer=setInterval(()=>{ if(meterEl) meterEl.textContent=meterText(); },1000); }
+function bumpMeter(tokens,cost){ if(tokens) runTokens+=tokens; if(cost) runCost+=cost; if(meterEl) meterEl.textContent=meterText(); }
+function stopMeter(tokens,cost){ clearInterval(meterTimer); meterTimer=null;
+  if(tokens!=null) runTokens=tokens; if(cost!=null) runCost=cost;
+  if(meterEl){ meterEl.classList.add("done"); meterEl.textContent=meterText("✓ 완료 · "); }
+  runStart=0; meterEl=null; }
 function startRun(goal,atts,label){ running=true; $("title").textContent=(label||"").slice(0,42);
   $("stop").hidden=false;
-  assistantStart(); busyOn(atts.length?"첨부 처리 중…":"작업 중…");
+  assistantStart(); busyOn(atts.length?"첨부 처리 중…":"작업 중…"); startMeter();
   window.poly.runAgent(goal,cwd,atts);
 }
 function dequeue(){ if(!queue.length) return; const n=queue.shift();
@@ -923,6 +940,7 @@ function dequeue(){ if(!queue.length) return; const n=queue.shift();
 }
 function stopRun(){ window.poly.stopAgent(); if(supRunning) window.poly.superviseStop();
   try{ window.poly.stopWeb&&window.poly.stopWeb(); }catch{}   // also stop a running dev server
+  if(meterEl) stopMeter();
   queue=[]; running=false; supRunning=false; busyOff();
   $("stop").hidden=true; chat.querySelectorAll(".qpend").forEach(e=>e.remove());
   status("■ 중지됨","info");
@@ -944,6 +962,7 @@ window.poly.onLog((s)=>{ if(!s) return;
 window.poly.onEvent((e)=>{
   switch(e.type){
     case "text": textDelta(e.delta||""); break;   // stream the model's prose as Markdown
+    case "usage": if(e.entry) bumpMeter(e.entry.totalTokens||0, e.entry.costUsd||0); break;   // live tokens + cost
     case "plan": status("계획 수립 ("+e.plan.steps.length+" 단계) · "+e.planModel,"info"); break;
     case "criteria": status("목표: "+e.goalType+" · 기준 "+e.criteria.length+"개","info"); break;
     case "step-start": status((e.explored?"🎲 ":"")+"단계 "+e.step.id+" ["+e.step.type+"] → "+e.model.id,"step"); break;
@@ -959,9 +978,9 @@ window.poly.onEvent((e)=>{
     case "step-end": status("✓ "+(e.summary||"").slice(0,150),"ok"); refreshFiles(); break;
     case "verdict": status((e.allMet?"✅ ":"❌ ")+e.metCount+"/"+e.total+" 기준 충족",e.allMet?"ok":"err"); break;
     case "quality": status("📊 품질 "+e.overall+"/100"+(e.dims&&e.dims.design!=null?(" · 디자인 "+e.dims.design):""),"info"); break;
-    case "done": busyOff(); status("완료 · "+e.calls+" calls"+(e.totalCostUsd!=null?(" · $"+e.totalCostUsd.toFixed(4)):""),"ok"); break;
+    case "done": busyOff(); stopMeter(e.totalTokens, e.totalCostUsd); status("완료 · "+e.calls+"회 호출"+(e.passed===true?" · ✅ 검증 통과":e.passed===false?" · ⚠ 검증 실패":""),"ok"); break;
     case "error": status("⚠ "+e.message,"err"); reportErr("agent", e.message); if(/api key|key set|poly login|로그인/i.test(e.message||"")){ refreshStatus().then(()=>{ if(!hasKey&&!hasLocal) openLogin(); }); } break;
-    case "exit": busyOff(); finalizeMd(); running=false; refreshFiles().then(()=>{ if(!queue.length) offerRunWeb(); }); snapshotCur(); persistConvs(); if(shotPath) setTimeout(()=>window.poly.capture(shotPath),1200);
+    case "exit": busyOff(); finalizeMd(); if(meterEl) stopMeter(); running=false; refreshFiles().then(()=>{ if(!queue.length) offerRunWeb(); }); snapshotCur(); persistConvs(); if(shotPath) setTimeout(()=>window.poly.capture(shotPath),1200);
       if(queue.length) setTimeout(dequeue,300);   // run the next queued message
       else $("stop").hidden=true;
       break;
@@ -1141,7 +1160,7 @@ function startSuperviseChat(goal){
   assistantStart();
   const agent=$("sup-agent").value, auto=$("sup-auto").checked, max=parseInt($("sup-max").value,10)||5;
   status("🔭 슈퍼비전 시작 · 워커: "+agent+(auto?(" · AUTO(최대 "+max+"회)"):" · 수동"),"step");
-  busyOn("워커 구동 준비 중…");
+  busyOn("워커 구동 준비 중…"); startMeter();
   window.poly.superviseRun({ cwd, goal, agent, cmd:($("sup-cmd").value||"").trim(),
     auto, maxRuns:max, model:"", cont:false });
 }
@@ -1167,10 +1186,10 @@ window.poly.onSuperviseEvent((e)=>{
       if(!r.done && r.nextInstruction){ const n=document.createElement("div"); n.className="nextcard";
         n.innerHTML='<b>→ 다음 지시</b><br>'+esc(r.nextInstruction); if(cur) cur.appendChild(n); }
       scroll(); break; }
-    case "result":{ busyOff(); status((e.done?"✅ 목표 달성":"■ 종료"+(e.stoppedReason?" · "+e.stoppedReason:""))+
-      " · 실행 "+(e.runs||e.step||0)+"회 · $"+(e.costUsd||0).toFixed(4), e.done?"ok":"info"); break; }
+    case "result":{ busyOff(); if(e.costUsd!=null) runCost=e.costUsd; status((e.done?"✅ 목표 달성":"■ 종료"+(e.stoppedReason?" · "+e.stoppedReason:""))+
+      " · 실행 "+(e.runs||e.step||0)+"회", e.done?"ok":"info"); break; }
     case "log": break;
-    case "exit": busyOff(); supRunning=false; running=false; $("stop").hidden=true;
+    case "exit": busyOff(); if(meterEl) stopMeter(); supRunning=false; running=false; $("stop").hidden=true;
       refreshFiles(); snapshotCur(); persistConvs();
       if(queue.length) setTimeout(dequeue,300);
       break;
