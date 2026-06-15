@@ -1,7 +1,7 @@
 // Polymac — Electron main process. A Claude-Desktop-style app whose engine is the
 // poly agent: it picks a working folder, accepts an OpenRouter key (or uses the local
 // LLM), and drives `poly agent` (headless JSON stream) to edit files / write code.
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const { spawn, execSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -308,6 +308,14 @@ function imageThumb(p) {
   }
 }
 ipcMain.handle("attachment-kind", (_e, p) => fileKind(p));
+ipcMain.handle("open-external", (_e, url) => {
+  try {
+    if (/^https?:\/\//i.test(String(url))) shell.openExternal(String(url));
+    return true;
+  } catch {
+    return false;
+  }
+});
 // Persist a pasted/in-memory blob (e.g. a clipboard screenshot) to a temp file so it can
 // be attached like any other file.
 ipcMain.handle("save-blob", (_e, { name, dataUrl }) => {

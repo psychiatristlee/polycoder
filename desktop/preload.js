@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld("poly", {
   pickAttachments: () => ipcRenderer.invoke("pick-attachments"),
   attachmentKind: (p) => ipcRenderer.invoke("attachment-kind", p),
   saveBlob: (name, dataUrl) => ipcRenderer.invoke("save-blob", { name, dataUrl }),
+  openExternal: (url) => ipcRenderer.invoke("open-external", url),
   answer: (text) => ipcRenderer.send("answer", text),
   setupLocal: () => ipcRenderer.send("setup-local"),
   onEvent: (cb) => ipcRenderer.on("agent-event", (_e, ev) => cb(ev)),

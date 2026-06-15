@@ -161,6 +161,26 @@
   .supresult{text-align:center;max-width:780px;margin:0 auto 16px;padding:14px;border-radius:12px;background:var(--panel);border:1px solid var(--border);font-size:13.5px;color:var(--accent2);font-weight:600}
   .supresult .rmeta{font-weight:400;color:var(--mut);font-size:12px;margin-top:4px}
 
+  /* login / onboarding */
+  .loginmask{position:fixed;inset:0;z-index:50;background:rgba(42,33,30,.42);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center}
+  .loginmask[hidden]{display:none}
+  .logincard{width:380px;max-width:90vw;background:var(--card);border:1px solid var(--border);border-radius:18px;box-shadow:0 12px 48px rgba(70,45,30,.22);padding:30px 28px;text-align:center}
+  .loginbrand{font-family:Georgia,serif;font-size:24px;font-weight:700;color:var(--accent);display:flex;align-items:center;justify-content:center;gap:9px;margin-bottom:18px}
+  .loginbrand .mk{width:11px;height:11px;border-radius:3px;background:var(--gold);transform:rotate(45deg)}
+  .loginh{font-family:Georgia,serif;font-size:18px;color:var(--fg);margin-bottom:6px}
+  .loginsub{font-size:12.5px;color:var(--mut);line-height:1.6;margin-bottom:18px}
+  .logincard input{width:100%;padding:11px 14px;border-radius:11px;border:1px solid var(--border2);background:var(--bg);color:var(--fg);font:inherit;font-size:13.5px;outline:none;margin-bottom:10px}
+  .logincard input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(110,36,54,.1)}
+  .loginbtn{width:100%;padding:11px;border-radius:11px;border:1px solid var(--border2);background:var(--card);color:var(--fg);font:inherit;font-size:13.5px;transition:all .12s}
+  .loginbtn:hover{border-color:var(--accent);background:#fff}
+  .loginbtn.primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+  .loginbtn.primary:hover{background:var(--accent2)}
+  .loginlink{display:inline-block;margin-top:11px;font-size:12px;color:var(--gold);text-decoration:none}
+  .loginlink:hover{text-decoration:underline}
+  .logindiv{display:flex;align-items:center;gap:10px;color:var(--soft);font-size:11px;margin:16px 0 12px}
+  .logindiv::before,.logindiv::after{content:"";flex:1;height:1px;background:var(--border)}
+  .loginmsg{font-size:12px;color:var(--accent2);margin-top:10px;min-height:16px}
+
   /* artifact preview */
   .preview{width:48%;min-width:380px;border-left:1px solid var(--border);background:var(--card);display:flex;flex-direction:column}
   .preview[hidden]{display:none}
@@ -278,6 +298,20 @@
    </div>
   </main>
 
+  <div class="loginmask" id="loginmask" hidden>
+    <div class="logincard">
+      <div class="loginbrand"><span class="mk"></span> polyrun</div>
+      <div class="loginh">시작하려면 모델 연결이 필요해요</div>
+      <div class="loginsub">OpenRouter 키를 넣거나, 무료 로컬 LLM을 설치하세요. 키는 이 컴퓨터에만 저장됩니다.</div>
+      <input id="loginkey" type="password" placeholder="OpenRouter API 키 (sk-or-...)" autocomplete="off" />
+      <button class="loginbtn primary" id="loginsave">키 저장하고 시작</button>
+      <a class="loginlink" id="getkey" href="#">OpenRouter 키 발급받기 ↗</a>
+      <div class="logindiv"><span>또는</span></div>
+      <button class="loginbtn" id="loginlocal">로컬 LLM 설치 (무료 · 키 불필요)</button>
+      <div class="loginmsg" id="loginmsg"></div>
+    </div>
+  </div>
+
 <script>
 const $=(id)=>document.getElementById(id);
 let cwd=null, shotPath="", running=false, cur=null, curP=null, spinnerRow=null;
@@ -303,7 +337,23 @@ function renderQuestion(q,options){ if(!cur) assistantStart(); busyOff();
   wrap.appendChild(ob); cur.appendChild(wrap); scroll();
 }
 
-async function refreshStatus(){ const s=await window.poly.status(); $("keystat").textContent="key "+(s.hasKey?"✓":"✗"); $("localstat").textContent="local "+(s.local?"✓":"✗"); }
+let hasKey=false, hasLocal=false;
+async function refreshStatus(){ const s=await window.poly.status(); hasKey=!!s.hasKey; hasLocal=!!s.local;
+  $("keystat").textContent="key "+(hasKey?"✓":"✗"); $("localstat").textContent="local "+(hasLocal?"✓":"✗");
+  // Show the login screen when there's no way to run a model yet.
+  $("loginmask").hidden = hasKey || hasLocal;
+}
+function openLogin(){ $("loginmask").hidden=false; setTimeout(()=>$("loginkey").focus(),50); }
+$("loginsave").onclick=async()=>{ const k=$("loginkey").value.trim();
+  if(!k){ $("loginmsg").textContent="키를 입력하세요."; return; }
+  $("loginmsg").textContent="저장 중…"; const ok=await window.poly.saveKey(k);
+  if(ok){ $("loginkey").value=""; $("loginmsg").textContent=""; await refreshStatus(); if(hasKey) $("loginmask").hidden=true; }
+  else $("loginmsg").textContent="저장 실패. 다시 시도해 주세요."; };
+$("loginkey").addEventListener("keydown",(e)=>{ if(e.key==="Enter") $("loginsave").click(); });
+$("loginlocal").onclick=()=>{ $("loginmask").hidden=true; showView("chat"); assistantStart(); busyOn("로컬 LLM 설치 중 (Ollama + 최적 모델)… 수 분 걸릴 수 있어요"); window.poly.setupLocal(); };
+$("getkey").onclick=(e)=>{ e.preventDefault(); window.poly.openExternal("https://openrouter.ai/keys"); };
+// Clicking the key/local chips reopens the login screen.
+document.querySelector(".chips")?.addEventListener("click",()=>{ if(!hasKey && !hasLocal) openLogin(); });
 const ICONS={md:"📝",markdown:"📝",html:"🌐",htm:"🌐",svg:"◆",pdf:"📕",tex:"📐",csv:"📊",xlsx:"📊",xls:"📊",json:"⚙",png:"🖼",jpg:"🖼",jpeg:"🖼",gif:"🖼",webp:"🖼"};
 const RENDERABLE=new Set(["md","markdown","html","htm","svg","pdf","tex","csv","json","xlsx","xls","png","jpg","jpeg","gif","webp"]);
 let knownFiles=null;
@@ -408,6 +458,7 @@ ta.addEventListener("paste",async(e)=>{ const items=[...(e.clipboardData&&e.clip
     else { const du=await readThumb(blob); const saved=await window.poly.saveBlob("pasted",du); if(saved) addAttachments([saved]); } } } });
 
 function run(){ const goal=ta.value.trim(); if(!goal && !attachments.length) return;
+  if(!hasKey && !hasLocal){ openLogin(); return; }
   if(!cwd){ assistantStart(); status("먼저 작업 폴더를 열어주세요.","err"); return; }
   if(running) return; running=true; $("run").disabled=true; $("title").textContent=(goal||attachments.map(a=>a.name).join(", ")).slice(0,42);
   const atts=attachments.slice();
@@ -419,7 +470,7 @@ function run(){ const goal=ta.value.trim(); if(!goal && !attachments.length) ret
 }
 $("run").onclick=run;
 
-window.poly.onLog((s)=>{ if(s) tool(s); });
+window.poly.onLog((s)=>{ if(s) tool(s); if(s && /setup finished|설치 (완료|끝)/i.test(s)){ busyOff(); refreshStatus(); } });
 window.poly.onEvent((e)=>{
   switch(e.type){
     case "plan": status("계획 수립 ("+e.plan.steps.length+" 단계) · "+e.planModel,"info"); break;
@@ -432,7 +483,7 @@ window.poly.onEvent((e)=>{
     case "verdict": status((e.allMet?"✅ ":"❌ ")+e.metCount+"/"+e.total+" 기준 충족",e.allMet?"ok":"err"); break;
     case "quality": status("📊 품질 "+e.overall+"/100"+(e.dims&&e.dims.design!=null?(" · 디자인 "+e.dims.design):""),"info"); break;
     case "done": busyOff(); status("완료 · "+e.calls+" calls"+(e.totalCostUsd!=null?(" · $"+e.totalCostUsd.toFixed(4)):""),"ok"); break;
-    case "error": status("⚠ "+e.message,"err"); break;
+    case "error": status("⚠ "+e.message,"err"); if(/api key|key set|poly login|로그인/i.test(e.message||"")){ refreshStatus().then(()=>{ if(!hasKey&&!hasLocal) openLogin(); }); } break;
     case "exit": busyOff(); running=false; $("run").disabled=false; refreshFiles(); snapshotCur(); persistConvs(); if(shotPath) setTimeout(()=>window.poly.capture(shotPath),1200); break;
   }
 });
