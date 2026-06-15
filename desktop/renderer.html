@@ -472,7 +472,15 @@ function run(){ const goal=ta.value.trim(); if(!goal && !attachments.length) ret
 }
 $("run").onclick=run;
 
-window.poly.onLog((s)=>{ if(s) tool(s); if(s && /setup finished|설치 (완료|끝)/i.test(s)){ busyOff(); refreshStatus(); } });
+window.poly.onLog((s)=>{ if(s) tool(s);
+  if(s && /setup finished|설치 (완료|끝)|Setup complete/i.test(s)){
+    busyOff();
+    refreshStatus().then(()=>{
+      $("loginmask").hidden=true;
+      if(hasLocal){ status("✓ 로컬 모델 준비 완료 — 키 없이 바로 실행할 수 있어요. 메시지를 입력하세요.","ok"); try{ta.focus();}catch{} }
+    });
+  }
+});
 window.poly.onEvent((e)=>{
   switch(e.type){
     case "plan": status("계획 수립 ("+e.plan.steps.length+" 단계) · "+e.planModel,"info"); break;
