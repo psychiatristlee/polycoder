@@ -308,6 +308,53 @@ function imageThumb(p) {
   }
 }
 ipcMain.handle("attachment-kind", (_e, p) => fileKind(p));
+// Run a poly subcommand that prints a JSON line; return the parsed object (or null).
+function runPolyJson(args) {
+  return new Promise((resolve) => {
+    const child = spawnPoly(args);
+    let out = "";
+    child.stdout.on("data", (d) => (out += d.toString()));
+    child.on("error", () => resolve(null));
+    child.on("close", () => {
+      try {
+        const line = out.trim().split("\n").filter(Boolean).pop();
+        resolve(JSON.parse(line));
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+}
+ipcMain.handle("local-catalog", () => runPolyJson(["local", "catalog", "--json"]));
+ipcMain.handle("local-list", () => runPolyJson(["local", "list", "--json"]));
+ipcMain.on("local-pull", (e, id) => {
+  const child = spawnPoly(["local", "pull", id, "-y"]);
+  let buf = "";
+  const pump = (d) => {
+    buf += d.toString();
+    const lines = buf.split("\n");
+    buf = lines.pop();
+    for (const ln of lines) if (ln.trim()) e.sender.send("agent-log", ln);
+  };
+  child.stdout.on("data", pump);
+  child.stderr.on("data", pump);
+  child.on("close", (code) => {
+    if (buf.trim()) e.sender.send("agent-log", buf);
+    e.sender.send("agent-log", code === 0 ? "[모델 설치 완료: " + id + "]" : "[모델 설치 실패: " + id + "]");
+    e.sender.send("local-pull-done", { id, ok: code === 0 });
+  });
+  child.on("error", (err) => {
+    e.sender.send("agent-log", "[설치 오류] " + err.message);
+    e.sender.send("local-pull-done", { id, ok: false });
+  });
+});
+ipcMain.handle("local-rm", (_e, id) =>
+  new Promise((resolve) => {
+    const child = spawnPoly(["local", "rm", id]);
+    child.on("close", (code) => resolve(code === 0));
+    child.on("error", () => resolve(false));
+  })
+);
 ipcMain.handle("open-external", (_e, url) => {
   try {
     if (/^https?:\/\//i.test(String(url))) shell.openExternal(String(url));

@@ -127,6 +127,25 @@
   .send:hover{background:var(--accent2)} .send:disabled{background:#cdbfa9}
   .hint{max-width:720px;margin:8px auto 0;font-size:11px;color:var(--soft);text-align:center}
 
+  /* model manager */
+  .modelpane{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+  .modelpane[hidden]{display:none}
+  .modelwrap{flex:1;overflow:auto;padding:22px 26px}
+  .modelnote{font-size:12.5px;color:var(--mut);max-width:760px;margin:0 auto 14px}
+  .modelrow{display:flex;align-items:center;gap:14px;max-width:760px;margin:0 auto 10px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:13px 16px;box-shadow:var(--shadow)}
+  .modelrow.on{border-left:3px solid var(--gold)}
+  .modelrow .mi{flex:1;min-width:0}
+  .modelrow .ml{font-weight:600;color:var(--accent2);font-size:14px}
+  .modelrow .mn{font-size:12px;color:var(--mut);margin-top:2px}
+  .modelrow .ma{display:flex;align-items:center;gap:8px;flex-shrink:0}
+  .mbtn{padding:7px 16px;border-radius:9px;border:1px solid var(--border2);background:var(--card);color:var(--fg);font-size:13px;transition:all .12s}
+  .mbtn:hover{border-color:var(--accent);background:#fff}
+  .mbtn.primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+  .mbtn.primary:hover{background:var(--accent2)}
+  .modelrow .badge{font-size:11.5px;border-radius:999px;padding:3px 11px;font-weight:600}
+  .modelrow .badge.on{background:rgba(74,107,77,.14);color:var(--green)}
+  .modelrow .badge.off{background:var(--code);color:var(--soft)}
+
   /* supervision */
   .suppane{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
   .suppane[hidden]{display:none}
@@ -244,6 +263,7 @@
     </div>
     <button class="sbtn" id="local"><span class="ic">⬇</span> 로컬 LLM 설치</button>
     <button class="sbtn" id="navchat"><span class="ic">💬</span> 채팅</button>
+    <button class="sbtn" id="navmodel"><span class="ic">🧠</span> 모델</button>
     <button class="sbtn" id="navsup"><span class="ic">🔭</span> 슈퍼비전 모드</button>
     <div class="seclabel convhead">대화 기록 <button class="newconv" id="newconv" title="새 대화 시작">＋</button></div>
     <div class="convs" id="convs"></div>
@@ -274,6 +294,10 @@
       </div>
       <div class="hint">poly 에이전트가 작업 폴더에서 파일을 읽고 쓰고 명령을 실행합니다 · 이미지·동영상·문서 첨부(📎/드래그/붙여넣기) · Shift+Enter 줄바꿈</div>
     </div>
+   </div>
+   <div class="modelpane" id="modelpane" hidden>
+     <div class="topbar">🧠 모델 <span class="sub">여러 개 받아두면 작업·비용에 따라 poly가 자동으로 골라 씁니다</span></div>
+     <div class="modelwrap" id="modellist"></div>
    </div>
    <div class="suppane" id="suppane" hidden>
      <div class="topbar">🔭 슈퍼비전 모드 <span class="sub">외부 코딩 에이전트(Claude Code·Codex)를 감독하고 다음 단계를 추천</span></div>
@@ -548,6 +572,7 @@ window.poly.onAuto((a)=>{ setCwd(a.cwd); if(a.goal) ta.value=a.goal; shotPath=a.
     if(s.model) $("sup-model").value=s.model;
     if(s.run) setTimeout(()=>startSupervise(false),500);
   }
+  if(a.view==="model"){ showView("model"); }
   if(a.preview){ setTimeout(()=>openPreview(a.preview),800); }
   if(a.run && a.goal){ setTimeout(run,600); }
   else if(a.preview){ const nm=a.preview.split("/").pop(); userMsg("이 아티팩트를 미리보기로 렌더해줘: "+nm); assistantStart(); status("아티팩트 렌더 → 오른쪽 미리보기 패널","info"); status("✓ "+nm+" 네이티브 렌더 완료 (SVG·PDF·HTML·Markdown·CSV·JSON·XLSX 지원)","ok"); }
@@ -555,14 +580,48 @@ window.poly.onAuto((a)=>{ setCwd(a.cwd); if(a.goal) ta.value=a.goal; shotPath=a.
 /* ---- supervision mode ---- */
 let supRunning=false, supCurStep=null;
 function showView(which){
-  const sup = which==="supervise";
-  $("chatpane").hidden = sup;
-  $("suppane").hidden = !sup;
-  if(sup){ $("preview").hidden = true; $("sup-proj").textContent = cwd || "작업 폴더를 먼저 여세요"; }
+  $("chatpane").hidden = which!=="chat";
+  $("suppane").hidden = which!=="supervise";
+  $("modelpane").hidden = which!=="model";
+  if(which!=="chat") $("preview").hidden = true;
+  if(which==="supervise") $("sup-proj").textContent = cwd || "작업 폴더를 먼저 여세요";
+  if(which==="model") loadModels();
 }
 $("navchat").onclick=()=>showView("chat");
 $("navsup").onclick=()=>showView("supervise");
+$("navmodel").onclick=()=>showView("model");
 $("sup-agent").addEventListener("change",()=>{ $("sup-cmd").hidden = $("sup-agent").value!=="cmd"; });
+
+/* ---- model manager: download several local models; poly auto-switches per task ---- */
+async function loadModels(){
+  const box=$("modellist"); box.innerHTML='<div class="modelnote">불러오는 중…</div>';
+  const cat=await window.poly.localCatalog();
+  if(!cat){ box.innerHTML='<div class="modelnote">로컬 런타임(Ollama)이 아직 없어요. 아무 모델이나 <b>설치</b>하면 자동으로 Ollama까지 깔립니다. (또는 OpenRouter 키로 클라우드 모델 사용)</div>'+
+    '<div class="modelrow"><div class="mi"><div class="ml">Qwen2.5 Coder 7B</div><div class="mn">solid coder · ~4.7GB</div></div><div class="ma"></div></div>';
+    // still let them install from a default list
+    const def=[{id:"qwen2.5-coder:7b",label:"Qwen2.5 Coder 7B",note:"균형형 코더",sizeGb:4.7},{id:"qwen2.5-coder:3b",label:"Qwen2.5 Coder 3B",note:"가벼움",sizeGb:2},{id:"llama3.2:3b",label:"Llama 3.2 3B",note:"빠른 범용",sizeGb:2}];
+    box.innerHTML='<div class="modelnote">로컬 런타임(Ollama)이 아직 없어요. 모델을 <b>설치</b>하면 자동으로 Ollama까지 설치됩니다. (또는 OpenRouter 키로 클라우드 모델)</div>';
+    def.forEach(m=>box.appendChild(modelRowEl({...m,fits:true,installed:false}))); return;
+  }
+  box.innerHTML='<div class="modelnote">이 머신: RAM '+cat.ramGb+'GB · 여유 디스크 '+cat.freeDiskGb+'GB · 로컬 라우팅 '+(cat.enabled?'<b>켜짐</b>':'꺼짐')+' · 받아둔 모델 중에서 poly가 작업·비용에 맞춰 자동 선택합니다.</div>';
+  cat.models.forEach(m=>box.appendChild(modelRowEl(m)));
+}
+function modelRowEl(m){
+  const row=document.createElement("div"); row.className="modelrow"+(m.installed?" on":"");
+  const mi=document.createElement("div"); mi.className="mi";
+  mi.innerHTML='<div class="ml">'+esc(m.label)+'</div><div class="mn">'+esc(m.note||"")+' · ~'+m.sizeGb+'GB</div>';
+  const ma=document.createElement("div"); ma.className="ma";
+  if(m.installed){ const b=document.createElement("span"); b.className="badge on"; b.textContent="설치됨"; ma.appendChild(b);
+    const rm=document.createElement("button"); rm.className="mbtn"; rm.textContent="삭제"; rm.onclick=()=>removeModel(m.id); ma.appendChild(rm); }
+  else if(m.fits!==false){ const b=document.createElement("button"); b.className="mbtn primary"; b.textContent="설치"; b.onclick=()=>installModel(m.id,m.label); ma.appendChild(b); }
+  else { const b=document.createElement("span"); b.className="badge off"; b.textContent="용량 부족"; ma.appendChild(b); }
+  row.appendChild(mi); row.appendChild(ma); return row;
+}
+function installModel(id,label){ showView("chat"); assistantStart(); status("🧠 모델 설치: "+(label||id),"info"); busyOn("다운로드 중… 수 분 걸릴 수 있어요"); window.poly.localPull(id); }
+async function removeModel(id){ await window.poly.localRm(id); loadModels(); refreshStatus(); }
+window.poly.onLocalPullDone((d)=>{ busyOff(); refreshStatus().then(()=>{ $("loginmask").hidden = hasKey||hasLocal ? true : false;
+  status(d.ok?("✓ 모델 설치 완료: "+d.id+" — 이제 poly가 작업에 따라 자동 선택합니다."):("⚠ 모델 설치 실패: "+d.id+" (위 콘솔 참고)"), d.ok?"ok":"err"); });
+});
 
 function supEmpty(){ const t=$("sup-timeline"); if(t.querySelector(".supempty")) t.innerHTML=""; }
 function supStepEl(n){

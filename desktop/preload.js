@@ -13,6 +13,12 @@ contextBridge.exposeInMainWorld("poly", {
   attachmentKind: (p) => ipcRenderer.invoke("attachment-kind", p),
   saveBlob: (name, dataUrl) => ipcRenderer.invoke("save-blob", { name, dataUrl }),
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
+  // local model management
+  localCatalog: () => ipcRenderer.invoke("local-catalog"),
+  localList: () => ipcRenderer.invoke("local-list"),
+  localPull: (id) => ipcRenderer.send("local-pull", id),
+  localRm: (id) => ipcRenderer.invoke("local-rm", id),
+  onLocalPullDone: (cb) => ipcRenderer.on("local-pull-done", (_e, d) => cb(d)),
   answer: (text) => ipcRenderer.send("answer", text),
   setupLocal: () => ipcRenderer.send("setup-local"),
   onEvent: (cb) => ipcRenderer.on("agent-event", (_e, ev) => cb(ev)),
