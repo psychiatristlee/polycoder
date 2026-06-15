@@ -731,7 +731,7 @@ function gridTable(rows){ let t='<table class="grid">'; for(const r of rows){ t+
 function parseCsv(text){ return text.replace(/\r/g,"").split("\n").filter(l=>l.length).map(l=>{const out=[];let cur="",q=false;for(let i=0;i<l.length;i++){const c=l[i];if(q){if(c==='"'&&l[i+1]==='"'){cur+='"';i++;}else if(c==='"')q=false;else cur+=c;}else{if(c==='"')q=true;else if(c===","){out.push(cur);cur="";}else cur+=c;}}out.push(cur);return out;}); }
 
 function fileUrl(p){ return "file://"+p.split("/").map(encodeURIComponent).join("/"); }
-function renderMath(el){ try{ if(window.renderMathInElement) window.renderMathInElement(el,{delimiters:[{left:"$$",right:"$$",display:true},{left:"\\[",right:"\\]",display:true},{left:"$",right:"$",display:false},{left:"\\(",right:"\\)",display:false}],throwOnError:false}); }catch(e){} }
+function renderMath(el){ try{ if(window.renderMathInElement) window.renderMathInElement(el,{delimiters:[{left:"$$",right:"$$",display:true},{left:"\\[",right:"\\]",display:true},{left:"$",right:"$",display:false},{left:"\\(",right:"\\)",display:false}],ignoredClasses:["mermaid"],throwOnError:false}); }catch(e){} }
 // Render ```mermaid blocks (and .mmd files) into vector SVG diagrams via the bundled mermaid lib.
 let mermaidReady=false;
 async function renderMermaid(root){ const nodes=root&&root.querySelectorAll?[...root.querySelectorAll(".mermaid")]:[];
