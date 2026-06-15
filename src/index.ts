@@ -1022,6 +1022,7 @@ localCmd
   .description("Recommended local models + what fits this machine")
   .option("--json", "machine-readable output", false)
   .action(async (opts) => {
+    if (ollamaInstalled()) await ensureServer(); // installed list is only visible with the server up
     const have = await installedModels();
     const ram = totalRamGb();
     const disk = freeDiskGb();
@@ -1051,6 +1052,7 @@ localCmd
   .description("Installed local models")
   .option("--json", "machine-readable output", false)
   .action(async (opts) => {
+    if (ollamaInstalled()) await ensureServer();
     const have = await installedModels();
     const cfg = loadConfig();
     if (opts.json) {

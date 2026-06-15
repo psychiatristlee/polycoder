@@ -142,6 +142,11 @@
   .modelnote{font-size:12.5px;color:var(--mut);max-width:760px;margin:0 auto 14px;line-height:1.6}
   .modelgroup{max-width:760px;margin:14px auto 8px;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--soft);font-weight:700}
   .modelsection{max-width:760px;margin:22px auto 10px;font-family:Georgia,serif;font-size:16px;color:var(--accent);font-weight:700;border-bottom:1px solid var(--border);padding-bottom:6px}
+  .runtimedet{max-width:760px;margin:2px auto 10px}
+  .runtimedet>summary{cursor:pointer;font-size:12px;color:var(--mut);padding:6px 2px;list-style:none;user-select:none}
+  .runtimedet>summary::-webkit-details-marker{display:none}
+  .runtimedet>summary:hover{color:var(--accent)}
+  .runtimedet[open]>summary{color:var(--accent2);font-weight:600}
   .runtimebox{max-width:760px;margin:4px auto 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .runtimebox .rtlabel{font-size:12px;color:var(--mut);font-weight:600}
   .runtimebox select,.runtimebox input{padding:7px 10px;border-radius:9px;border:1px solid var(--border2);background:var(--card);color:var(--fg);font:inherit;font-size:12.5px;outline:none}
@@ -470,6 +475,7 @@ async function refreshFiles(){ if(!cwd) return; const files=await window.poly.li
   knownFiles=new Set(files);
   const box=$("files"); box.innerHTML=""; if(!files.length){box.innerHTML='<div class="file" style="cursor:default">(빈 폴더)</div>';return;} for(const f of files){const d=document.createElement("div");d.className="file"+(f.endsWith("/")?" dir":"");d.innerHTML='<span class="fi">'+iconFor(f)+'</span><span class="fn"></span>';d.querySelector(".fn").textContent=f; if(!f.endsWith("/")) d.onclick=()=>openPreview(cwd.replace(/\/$/,"")+"/"+f); box.appendChild(d);} }
 function setCwd(p){ cwd=p; knownFiles=null;
+  try{ if(p) localStorage.setItem("polyrun.cwd", p); }catch{}
   const name=(p||"").split(/[\\/]/).filter(Boolean).pop()||p;
   $("foldername").textContent=name||"선택 안 됨";
   $("folder").textContent=p||"클릭해서 폴더 열기";
@@ -709,21 +715,23 @@ async function loadModels(){
   await appendCloud(box);
 }
 function renderLocalRuntime(box, baseUrl, isOllama){
+  // Hidden under "고급" — normal users just use Ollama and never see this.
+  const det=document.createElement("details"); det.className="runtimedet"; if(!isOllama) det.open=true;
+  const sum=document.createElement("summary"); sum.textContent="⚙️ 고급 — 다른 앱의 모델 쓰기 (보통은 안 건드려도 됩니다)"; det.appendChild(sum);
   const wrap=document.createElement("div"); wrap.className="runtimebox";
-  const lbl=document.createElement("span"); lbl.className="rtlabel"; lbl.textContent="로컬 서버(런타임)";
   const sel=document.createElement("select");
-  [["ollama","Ollama (11434)"],["lmstudio","LM Studio (1234)"],["llamacpp","llama.cpp (8080)"],["custom","직접 입력"]].forEach(([v,t])=>{ const o=document.createElement("option"); o.value=v; o.textContent=t; sel.appendChild(o); });
+  [["ollama","Ollama (기본)"],["lmstudio","LM Studio"],["llamacpp","llama.cpp"],["custom","직접 입력"]].forEach(([v,t])=>{ const o=document.createElement("option"); o.value=v; o.textContent=t; sel.appendChild(o); });
   const inp=document.createElement("input"); inp.value=baseUrl; inp.placeholder="http://localhost:1234/v1";
-  // pick the matching preset
   const cur=Object.entries(RUNTIME_PRESETS).find(([k,u])=>baseUrl.replace(/\/$/,"")===u.replace(/\/$/,""));
   sel.value=cur?cur[0]:"custom";
   sel.onchange=()=>{ if(sel.value!=="custom"){ inp.value=RUNTIME_PRESETS[sel.value]; } inp.focus(); };
   const btn=document.createElement("button"); btn.className="mbtn primary"; btn.textContent="적용";
   btn.onclick=async()=>{ btn.disabled=true; btn.textContent="적용 중…"; await window.poly.setLocalUrl(inp.value.trim()); await refreshStatus(); loadModels(); };
-  wrap.appendChild(lbl); wrap.appendChild(sel); wrap.appendChild(inp); wrap.appendChild(btn); box.appendChild(wrap);
-  const hint=document.createElement("div"); hint.className="modelnote"; hint.style.marginTop="6px";
-  hint.innerHTML="다른 런타임을 쓰려면 그 앱에서 <b>OpenAI 호환 서버</b>를 켜고(LM Studio: Local Server▶Start · llama.cpp: <code>llama-server --port 8080</code>) 위 주소를 맞춘 뒤 <b>적용</b>하세요.";
-  box.appendChild(hint);
+  wrap.appendChild(sel); wrap.appendChild(inp); wrap.appendChild(btn); det.appendChild(wrap);
+  const hint=document.createElement("div"); hint.className="modelnote"; hint.style.margin="8px 0 0";
+  hint.innerHTML="기본은 <b>Ollama</b>입니다(아래에서 받아 쓰면 됨). LM Studio 같은 다른 앱에서 이미 모델을 돌리고 있다면, 그 앱의 주소를 골라 <b>적용</b>하면 그 모델을 씁니다.";
+  det.appendChild(hint);
+  box.appendChild(det);
 }
 async function appendCloud(box){
   const sec=document.createElement("div"); sec.className="modelsection"; sec.textContent="☁️ 클라우드 (OpenRouter · 키만 있으면 바로)"; box.appendChild(sec);
@@ -867,6 +875,8 @@ function initConvs(){ loadConvs(); if(convs.length){ const n=convs.slice().sort(
 
 initConvs();
 refreshStatus();
+// Restore the last-used working folder (persists across restarts).
+try{ const sc=localStorage.getItem("polyrun.cwd"); if(sc && !cwd) setCwd(sc); }catch{}
 </script>
 </body>
 </html>
