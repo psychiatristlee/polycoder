@@ -22,6 +22,12 @@ Each step must be classified by type, chosen from EXACTLY this set:
   summarize - condense long content
   chat      - a simple conversational reply
 
+IMPORTANT — answer, don't invent work: if the request is a question, a request to explain/show
+something, casual conversation, or a meta-command about this agent/tool itself (e.g. "use the
+saved key", "what can you do", "why did that happen", "is it working") — i.e. NOT a concrete
+request to create or modify files/code — return EXACTLY ONE step of type "chat" that answers
+directly. NEVER invent a coding project, create files, or run commands for such requests.
+
 Also classify the request's goalType (one of: feature, bugfix, refactor, test, docs, chore, other) and write 2-5 MEASURABLE acceptance criteria — concrete, checkable conditions that mean the goal is fully achieved (e.g. "hello.js exists and prints the greeting", "npm test passes", "the function handles empty input").
 
 Return ONLY minified JSON of the form:
@@ -37,6 +43,31 @@ export function classifyGoalType(goal: string): GoalType {
   if (/\b(bump|upgrade|dependency|deps|config|chore|lint|format)\b/.test(g)) return "chore";
   if (/\b(add|create|implement|build|feature|support|new)\b/.test(g)) return "feature";
   return "other";
+}
+
+// Detect clearly non-build requests (questions / meta-commands about the tool) so the agent
+// answers conversationally instead of inventing a coding project (e.g. "오픈라우터 키 이용해봐"
+// must NOT trigger a 5-step plan that writes a fake .env). Conservative: ANY build intent or a
+// long request disqualifies it, so real coding tasks are never swallowed.
+const BUILD_INTENT =
+  /(만들|구현|추가|작성|생성|고쳐|수정|개발|짜(줘|봐)|클론|스캐폴|build|create|implement|add|write|make|scaffold|set ?up|fix|refactor|install|deploy|render|그려|그래프|차트|페이지|컴포넌트|함수|파일|api|앱|app|website|사이트)/i;
+const QUESTION_OR_META =
+  /[?？]\s*$|^\s*(왜|뭐|무엇|어떻게|어디|언제|누가|what|why|how|where|when|which|who|can you|do you|does it|is it|are you)\b|(이용해|사용해|써\s*봐|이게\s*뭐|설명|알려줘|보여줘|뭐가\s*있|할\s*수\s*있|가능해|되나|돼\?)/i;
+export function isConversational(goal: string): boolean {
+  const g = (goal || "").trim();
+  if (!g || g.length > 60) return false;
+  if (BUILD_INTENT.test(g)) return false;
+  return QUESTION_OR_META.test(g);
+}
+export function conversationalPlan(goal: string): Plan {
+  return {
+    goal,
+    steps: [
+      { id: 1, type: "chat", description: "Answer the user directly and conversationally. Do NOT create or modify any files or run commands.", estPromptTokens: 1200, estCompletionTokens: 500 },
+    ],
+    goalType: "other",
+    criteria: ["The user's question or request is answered clearly and directly"],
+  };
 }
 
 export function heuristicPlan(goal: string): Plan {
@@ -64,6 +95,9 @@ export async function planRequest(
   /** Optional reusable-skill playbook to bias the plan toward a proven approach. */
   extraContext?: string
 ): Promise<Plan> {
+  // Short-circuit clearly conversational/meta requests to a single chat answer — no LLM plan,
+  // no coding project. (Deterministic so it can't be derailed by a weak planner model.)
+  if (isConversational(goal)) return conversationalPlan(goal);
   const system = extraContext ? `${PLAN_SYSTEM}\n\n${extraContext}` : PLAN_SYSTEM;
   const result = await client.complete(
     {
