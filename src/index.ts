@@ -294,6 +294,7 @@ program
   .option("--tools", "only models that support tool/function calling", false)
   .option("-s, --search <text>", "filter by id/name substring")
   .option("--refresh", "force-refresh the catalog from OpenRouter", false)
+  .option("--json", "machine-readable output (all matches, for the desktop app)", false)
   .option("-n, --limit <n>", "max rows", "40")
   .action(async (opts) => {
     const config = loadConfig();
@@ -305,6 +306,27 @@ program
       models = models.filter((m) => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q));
     }
     models.sort((a, b) => blendedPrice(a) - blendedPrice(b));
+    if (opts.json) {
+      process.stdout.write(
+        JSON.stringify({
+          hasKey: !!resolveApiKey(config),
+          count: models.length,
+          models: models.map((m) => ({
+            id: m.id,
+            name: m.name,
+            provider: m.provider,
+            tier: m.tier,
+            promptUsd: m.pricing.promptUsdPerMTok,
+            completionUsd: m.pricing.completionUsdPerMTok,
+            tools: m.capabilities.tools,
+            vision: m.capabilities.vision,
+            ctx: m.contextLength,
+            local: m.id.startsWith("local/"),
+          })),
+        }) + "\n"
+      );
+      return;
+    }
     const limit = parseInt(opts.limit, 10) || 40;
     const rows = models.slice(0, limit).map((m) => [
       m.id,
