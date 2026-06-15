@@ -666,6 +666,7 @@ program
   .option("--no-verify", "single pass, no verify/escalate")
   .option("--no-skills", "don't reuse/learn skills")
   .option("--no-quality", "skip the quality score")
+  .option("--no-ask", "autonomous: never ask the user — proceed with sensible defaults")
   .option("--max-attempts <n>", "max attempts", "3")
   .action(async (goalParts: string[], opts) => {
     const startedAt = Date.now();
@@ -706,7 +707,7 @@ program
       maxAttempts: Math.max(1, parseInt(opts.maxAttempts, 10) || 3),
       skills: config.skills.enabled && opts.skills !== false,
       quality: opts.quality !== false,
-      ask,
+      ask: opts.ask === false ? undefined : ask, // --no-ask → autonomous (no clarification prompts)
     };
     const emit = (e: AgentEvent) => process.stdout.write(JSON.stringify(e) + "\n");
     try {

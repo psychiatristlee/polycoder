@@ -107,6 +107,7 @@ function killChildTree(child) {
 let win;
 let agentChild = null;
 let superviseChild = null;
+let webChild = null; // running dev server for the "▶ 실행" feature
 
 // ---- attachments: images, video keyframes, and other documents -------------
 const IMG_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "heic", "svg"]);
@@ -459,6 +460,61 @@ ipcMain.handle("export-pdf", async (_e, { html, outPath, baseDir }) => {
     try { if (tmp && fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch {}
   }
 });
+// Run the built web project directly: start its dev server and open the page in the browser
+// (the agent itself must never run a dev server — those never exit). Static sites just open.
+function stopWeb() {
+  if (webChild) { try { killChildTree(webChild); } catch {} webChild = null; }
+}
+ipcMain.handle("stop-web", () => { stopWeb(); return { ok: true }; });
+ipcMain.handle("run-web", async (_e, cwd) => {
+  try {
+    if (!cwd || !fs.existsSync(cwd)) return { ok: false, error: "작업 폴더가 없습니다." };
+    // Find the project root (cwd or the single subdir that holds package.json/index.html).
+    const findRoot = (dir) => {
+      if (fs.existsSync(path.join(dir, "package.json")) || fs.existsSync(path.join(dir, "index.html"))) return dir;
+      try {
+        const subs = fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith(".") && d.name !== "node_modules");
+        for (const s of subs) { const p = path.join(dir, s.name); if (fs.existsSync(path.join(p, "package.json")) || fs.existsSync(path.join(p, "index.html"))) return p; }
+      } catch {}
+      return dir;
+    };
+    const root = findRoot(cwd);
+    const pkgPath = path.join(root, "package.json");
+    if (fs.existsSync(pkgPath)) {
+      let scripts = {};
+      try { scripts = (JSON.parse(fs.readFileSync(pkgPath, "utf8")).scripts) || {}; } catch {}
+      const script = scripts.dev ? "dev" : scripts.start ? "start" : scripts.serve ? "serve" : null;
+      if (script) {
+        // install deps if missing, then start the dev server (kept alive in webChild)
+        if (!fs.existsSync(path.join(root, "node_modules"))) {
+          try { win && win.webContents.send("agent-log", "[웹 실행] 의존성 설치 중 (npm install)…"); } catch {}
+          await new Promise((res) => { const ci = spawn(IS_WIN ? "npm.cmd" : "npm", ["install"], { cwd: root, env: { ...process.env, CI: "1" }, shell: IS_WIN, windowsHide: true }); ci.on("close", res); ci.on("error", res); });
+        }
+        stopWeb();
+        webChild = spawn(IS_WIN ? "npm.cmd" : "npm", ["run", script], { cwd: root, env: { ...process.env, BROWSER: "none", FORCE_COLOR: "0" }, shell: IS_WIN, windowsHide: true });
+        let opened = false;
+        const openUrl = (u) => { if (opened) return; opened = true; try { shell.openExternal(u); } catch {} };
+        const scan = (d) => {
+          const s = d.toString();
+          try { win && win.webContents.send("agent-log", s.trim()); } catch {}
+          const m = s.match(/https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?::\d+)?[^\s)]*/i);
+          if (m) openUrl(m[0].replace("0.0.0.0", "localhost"));
+        };
+        webChild.stdout.on("data", scan);
+        webChild.stderr.on("data", scan);
+        setTimeout(() => openUrl("http://localhost:3000"), 9000); // fallback if no URL was printed
+        return { ok: true, mode: "dev", script, root };
+      }
+    }
+    for (const rel of ["index.html", "dist/index.html", "build/index.html", "public/index.html", "out/index.html"]) {
+      const p = path.join(root, rel);
+      if (fs.existsSync(p)) { try { shell.openExternal("file://" + p); } catch {} return { ok: true, mode: "static", path: p }; }
+    }
+    return { ok: false, error: "실행할 웹 프로젝트를 찾지 못했습니다 (package.json의 dev/start 스크립트나 index.html이 필요합니다)." };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
 // Attachments: file picker → [{path,name,kind,thumb}], where thumb is a small data URL for images.
 ipcMain.handle("pick-attachments", async () => {
   const r = await dialog.showOpenDialog(dialogParent(), {
@@ -571,7 +627,7 @@ ipcMain.on("run-agent", async (e, { goal, cwd, attachments }) => {
       e.sender.send("agent-log", "[첨부 처리 오류] " + ((err && err.message) || err));
     }
   }
-  const args = ["agent", finalGoal, "-w", "-x", "--web", "-C", cwd, "-o", process.env.POLY_OBJ || "value", "--no-free", "--no-skills"];
+  const args = ["agent", finalGoal, "-w", "-x", "--web", "-C", cwd, "-o", process.env.POLY_OBJ || "value", "--no-free", "--no-skills", "--no-ask"];
   const child = spawnPoly(args);
   agentChild = child;
   let buf = "";
@@ -677,4 +733,5 @@ app.whenReady().then(() => {
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
-app.on("window-all-closed", () => app.quit());
+app.on("before-quit", () => stopWeb());
+app.on("window-all-closed", () => { stopWeb(); app.quit(); });

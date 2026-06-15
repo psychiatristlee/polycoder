@@ -130,6 +130,9 @@
   .qopt:disabled{opacity:.55;cursor:default}
   .ok{color:var(--green)} .info{color:var(--blue)} .err{color:var(--accent2)} .step{color:var(--accent2);font-weight:600}
   .qpend{max-width:720px;margin:2px auto 8px;padding:0 28px;font-size:12px;color:var(--soft);text-align:right}
+  .runrow{margin:8px 0}
+  .runbtn{background:var(--accent);color:#fff;border:0;padding:9px 18px;border-radius:11px;font-size:13.5px;font-weight:600;box-shadow:var(--shadow)}
+  .runbtn:hover{background:var(--accent2)}
   .qcustomrow{display:flex;gap:7px;margin-top:4px}
   .qcustomrow input{flex:1;padding:9px 12px;border-radius:10px;border:1px solid var(--border2);background:var(--card);color:var(--fg);font:inherit;font-size:13.5px;outline:none}
   .qcustomrow input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(110,36,54,.08)}
@@ -851,17 +854,50 @@ ta.addEventListener("paste",async(e)=>{ const items=[...(e.clipboardData&&e.clip
     else { const du=await readThumb(blob); const saved=await window.poly.saveBlob("pasted",du); if(saved) addAttachments([saved]); } } } });
 
 let queue=[];   // follow-up messages entered while a run is in progress
+// When the user just says "실행/run" (and nothing is running), polyrun launches the web
+// project itself — starts the dev server + opens the browser (or opens a static index.html).
+async function launchWeb(){
+  assistantStart(); status("▶ 웹 프로젝트 실행 준비…","step"); busyOn("개발 서버 시작 / 페이지 여는 중…");
+  let r; try{ r=await window.poly.runWeb(cwd); }catch(e){ r={ok:false,error:String(e)}; }
+  busyOff();
+  if(r&&r.ok) status(r.mode==="dev"
+      ? "✓ 개발 서버 시작됨 (npm run "+r.script+") — 브라우저에서 열었습니다. (■ 중지로 서버 종료)"
+      : "✓ 페이지를 브라우저에서 열었습니다.","ok");
+  else status("⚠ "+((r&&r.error)||"웹 실행 실패"),"err");
+}
+function offerRunWeb(){ if(!cur||!knownFiles) return;
+  if(![...knownFiles].some(f=>f==="package.json"||f==="index.html")) return;
+  const row=document.createElement("div"); row.className="runrow";
+  const b=document.createElement("button"); b.className="runbtn"; b.textContent="▶ 웹 페이지 실행"; b.onclick=()=>launchWeb();
+  row.appendChild(b); cur.appendChild(row); scroll();
+}
 function run(){ const goal=ta.value.trim(); if(!goal && !attachments.length) return;
   if(!hasKey && !hasLocal){ openLogin(); return; }
   if(!cwd){ assistantStart(); status("먼저 작업 폴더를 열어주세요.","err"); return; }
+  // "실행/run" intent (nothing running) → launch the web project directly, not the agent.
+  if(!running && !attachments.length && /^\s*(실행|실행해|실행해줘|실행시켜|구동|구동해|띄워|띄워줘|웹\s*실행|서버\s*실행|미리보기\s*실행|run|run it|start|preview)\s*[.!]?\s*$/i.test(goal)){
+    userMsg(goal); touchConvTitle(goal); ta.value=""; ta.style.height="auto"; launchWeb(); return;
+  }
   const atts=attachments.slice();
   const label=goal||atts.map(a=>a.name).join(", ");
   userMsg(goal+(atts.length?("\n📎 "+atts.map(a=>a.name).join(", ")):""));
   touchConvTitle(label);
   ta.value=""; ta.style.height="auto"; attachments=[]; renderAttachTray();
-  if(running){ // queue it — runs automatically when the current task finishes
+  if(running){
+    // A message sent mid-run is acknowledged immediately (the user bubble is already shown).
+    // If it reads like a course-correction, STOP the current task and switch to it; otherwise
+    // add it to the queue to run after the current task finishes.
+    const correction=/(아니|아냐|멈춰|멈추|중단|그만|취소|중지|stop|다시\s*시작|다시\s*해|다시\s*만들|대신|바꿔|바꾸|새로|처음부터|그게\s*아니|틀렸|잘못|reset|restart|cancel)/i.test(goal);
+    if(correction){
+      const m=document.createElement("div"); m.className="qpend"; m.textContent="🔄 현재 작업을 멈추고 이 요청으로 전환합니다…";
+      chat.appendChild(m); scroll(true);
+      queue=[{goal,atts,sup:supMode}];                 // replaces any pending work
+      if(supRunning){ window.poly.superviseStop(); supRunning=false; }
+      window.poly.stopAgent();                          // its exit event dequeues the new request
+      return;
+    }
     queue.push({goal,atts,sup:supMode});
-    const m=document.createElement("div"); m.className="qpend"; m.textContent="⏳ 대기 중 ("+queue.length+") — 현재 작업이 끝나면 실행됩니다";
+    const m=document.createElement("div"); m.className="qpend"; m.textContent="⏳ 대기 중 ("+queue.length+") — 현재 작업이 끝나면 이어서 실행됩니다";
     chat.appendChild(m); scroll(true); return;
   }
   if(supMode){ startSuperviseChat(goal); return; }   // supervision is a chat mode
@@ -879,6 +915,7 @@ function dequeue(){ if(!queue.length) return; const n=queue.shift();
   startRun(n.goal,n.atts,n.goal||(n.atts||[]).map(a=>a.name).join(", "));
 }
 function stopRun(){ window.poly.stopAgent(); if(supRunning) window.poly.superviseStop();
+  try{ window.poly.stopWeb&&window.poly.stopWeb(); }catch{}   // also stop a running dev server
   queue=[]; running=false; supRunning=false; busyOff();
   $("stop").hidden=true; chat.querySelectorAll(".qpend").forEach(e=>e.remove());
   status("■ 중지됨","info");
@@ -917,7 +954,7 @@ window.poly.onEvent((e)=>{
     case "quality": status("📊 품질 "+e.overall+"/100"+(e.dims&&e.dims.design!=null?(" · 디자인 "+e.dims.design):""),"info"); break;
     case "done": busyOff(); status("완료 · "+e.calls+" calls"+(e.totalCostUsd!=null?(" · $"+e.totalCostUsd.toFixed(4)):""),"ok"); break;
     case "error": status("⚠ "+e.message,"err"); reportErr("agent", e.message); if(/api key|key set|poly login|로그인/i.test(e.message||"")){ refreshStatus().then(()=>{ if(!hasKey&&!hasLocal) openLogin(); }); } break;
-    case "exit": busyOff(); finalizeMd(); running=false; refreshFiles(); snapshotCur(); persistConvs(); if(shotPath) setTimeout(()=>window.poly.capture(shotPath),1200);
+    case "exit": busyOff(); finalizeMd(); running=false; refreshFiles().then(()=>{ if(!queue.length) offerRunWeb(); }); snapshotCur(); persistConvs(); if(shotPath) setTimeout(()=>window.poly.capture(shotPath),1200);
       if(queue.length) setTimeout(dequeue,300);   // run the next queued message
       else $("stop").hidden=true;
       break;
@@ -1194,7 +1231,7 @@ function applyGate(){ const a=authState||{};
   else if(!a.user){ $("authgate").hidden=false; $("termsview").hidden=true; $("loginview").hidden=false; }
   else { $("authgate").hidden=true; }
 }
-async function refreshAuth(){ try{ authState=await window.poly.authStatus(); }catch{ authState={termsAccepted:true,user:{email:"dev"}}; } applyGate(); return authState; }
+async function refreshAuth(){ try{ authState=await window.poly.authStatus(); }catch{ authState={termsAccepted:false,user:null}; } applyGate(); return authState; }
 $("tmAccept").onclick=async()=>{ await window.poly.acceptTerms($("tmTelemetry").checked); await refreshAuth(); };
 $("tmTos").onclick=()=>window.poly.openExternal("https://polysearch--mathology-b8e3d.us-east4.hosted.app/terms");
 $("tmPriv").onclick=()=>window.poly.openExternal("https://polysearch--mathology-b8e3d.us-east4.hosted.app/privacy");

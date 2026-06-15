@@ -421,7 +421,7 @@ async function runStep(
     tried.add(model.id);
     emit({ type: "step-start", step, model, estCostUsd: 0, explored: i === 0 && !!explore?.explored });
     const messages: ChatMessage[] = [
-      { role: "system", content: stepSystemPrompt(goal, step, priorSummaries, model.capabilities.tools, skillContext) },
+      { role: "system", content: stepSystemPrompt(goal, step, priorSummaries, model.capabilities.tools, deps.ask != null, skillContext) },
       { role: "user", content: step.description },
     ];
     loop = await runToolLoop(model, messages, step.type, rungDef, deps, toolCtx, emit, logUsage);
@@ -584,7 +584,7 @@ async function runToolLoop(
     while (true) {
       try {
         const gen = deps.client.stream(
-          { model: model.id, messages, tools: useTools ? TOOL_SCHEMAS : undefined, temperature: 0.2, maxTokens: rungDef.maxTokens },
+          { model: model.id, messages, tools: useTools ? (deps.ask ? TOOL_SCHEMAS : TOOL_SCHEMAS.filter((t) => t.function?.name !== "ask_user")) : undefined, temperature: 0.2, maxTokens: rungDef.maxTokens },
           model.pricing
         );
         let next = await gen.next();
@@ -711,15 +711,18 @@ function stepSystemPrompt(
   step: PlannedStep,
   priorSummaries: string[],
   useTools: boolean,
+  askEnabled: boolean,
   skillContext?: string
 ): string {
   const context = priorSummaries.length ? `\n\nWhat previous steps accomplished:\n${priorSummaries.join("\n")}` : "";
   const skill = skillContext ? `\n\n${skillContext}` : "";
   const toolNote = useTools
-    ? `\nTools: read_file, write_file, list_dir, run_command, web_search, web_fetch, ask_user, finish.
+    ? `\nTools: read_file, write_file, list_dir, run_command, web_search, web_fetch${askEnabled ? ", ask_user" : ""}, finish.
 - RESEARCH FIRST when unsure: if the approach is unclear or needs current/specific knowledge, web_search/web_fetch to make it concrete before implementing.
 - SELF-UNBLOCK: if you hit a blocker (missing library, tool, command, or info), do NOT give up — install it (run_command), write a small helper script/tool, or search for the fix, then use it to continue. Build whatever you need to finish the task.
-- ASK ONLY WHEN AMBIGUOUS: if there's a genuine fork you cannot resolve from context, call ask_user with 2-4 concrete options; otherwise proceed with sensible defaults.
+${askEnabled
+  ? "- ASK ONLY WHEN AMBIGUOUS: if there's a genuine fork you cannot resolve from context, call ask_user with 2-4 concrete options; otherwise proceed with sensible defaults."
+  : "- AUTONOMOUS — NEVER ASK: there is no interactive user. NEVER wait for permission or clarification. Always pick the most sensible default, state the assumption briefly, and keep going until the goal is fully done."}
 - COMMANDS MUST BE NON-INTERACTIVE: pass flags so scaffolders don't prompt (e.g. \`npx --yes create-next-app@latest <name> --ts --eslint --app --tailwind --use-npm --no-src-dir --no-import-alias --yes\`). A command that waits for input will be killed.
 - WORKING DIRECTORY IS FIXED: every run_command starts in the SAME --cwd; \`cd\` does NOT persist between commands and there is no cd tool. To act in a subfolder, chain it in ONE command: \`cd <dir> && <command>\` (Windows: \`cd /d <dir> && <command>\`). Likewise read_file/write_file/list_dir paths are relative to that fixed cwd.
 - SCAFFOLD IN PLACE: prefer creating the project in the CURRENT directory — \`create-next-app .\` when the cwd is empty — so later \`npm run build\`/edits land in the right place. If a subdir already contains the project, run all later commands as \`cd <dir> && …\`. Check with list_dir before scaffolding; if the project already exists, do NOT scaffold again (re-running create-next-app errors with "directory not empty").
