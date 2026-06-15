@@ -306,6 +306,8 @@
   .pvbody .md li.task{list-style:none;margin-left:-1.4em}
   .pvbody .md li.task input{margin-right:7px;vertical-align:-1px}
   .pvbody .md del{color:#9a8f80}
+  .pvbody .md .mermaid{text-align:center;margin:1.1em 0}
+  .pvbody .md .mermaid svg{max-width:100%;height:auto}
   .pvbody .md ul ul,.pvbody .md ol ol,.pvbody .md ul ol,.pvbody .md ol ul{margin:.2em 0}
   .pvbody table.grid{border-collapse:collapse;margin:0;font-size:13.5px;width:100%}
   .pvbody table.grid td,.pvbody table.grid th{border:1px solid var(--border);padding:7px 13px;text-align:left}
@@ -322,6 +324,7 @@
 <link rel="stylesheet" href="node_modules/katex/dist/katex.min.css">
 <script defer src="node_modules/katex/dist/katex.min.js"></script>
 <script defer src="node_modules/katex/dist/contrib/auto-render.min.js"></script>
+<script defer src="node_modules/mermaid/dist/mermaid.min.js"></script>
 </head>
 <body>
   <aside class="side">
@@ -528,8 +531,8 @@ $("loginlocal").onclick=()=>{ $("loginmask").hidden=true; showView("model"); };
 $("getkey").onclick=(e)=>{ e.preventDefault(); window.poly.openExternal("https://openrouter.ai/keys"); };
 // Clicking the key/local chips reopens the login screen.
 document.querySelector(".chips")?.addEventListener("click",()=>{ if(!hasKey && !hasLocal) openLogin(); });
-const ICONS={md:"📝",markdown:"📝",html:"🌐",htm:"🌐",svg:"◆",pdf:"📕",tex:"📐",csv:"📊",xlsx:"📊",xls:"📊",json:"⚙",png:"🖼",jpg:"🖼",jpeg:"🖼",gif:"🖼",webp:"🖼"};
-const RENDERABLE=new Set(["md","markdown","html","htm","svg","pdf","tex","csv","json","xlsx","xls","png","jpg","jpeg","gif","webp"]);
+const ICONS={md:"📝",markdown:"📝",html:"🌐",htm:"🌐",svg:"◆",pdf:"📕",tex:"📐",mmd:"📈",mermaid:"📈",csv:"📊",xlsx:"📊",xls:"📊",json:"⚙",png:"🖼",jpg:"🖼",jpeg:"🖼",gif:"🖼",webp:"🖼"};
+const RENDERABLE=new Set(["md","markdown","html","htm","svg","pdf","tex","mmd","mermaid","csv","json","xlsx","xls","png","jpg","jpeg","gif","webp"]);
 let knownFiles=null;
 function iconFor(name){ if(name.endsWith("/")) return "📁"; return ICONS[(name.split(".").pop()||"").toLowerCase()]||"📄"; }
 async function refreshFiles(){ if(!cwd) return; const files=await window.poly.listFiles(cwd);
@@ -589,7 +592,10 @@ function mdToHtml(md){
     .replace(/\*([^*]+)\*/g,"<em>$1</em>")
     .replace(/(^|[^_])_([^_]+)_(?!_)/g,"$1<em>$2</em>");
   while(i<lines.length){ let l=lines[i];
-    if(/^```/.test(l)){const fence=l.match(/^```+\s*([\w-]*)/);const lang=fence?fence[1]:"";const buf=[];i++;while(i<lines.length&&!/^```/.test(lines[i])){buf.push(lines[i]);i++;}i++;out.push('<pre><code class="lang-'+esc(lang)+'">'+highlightCode(buf.join("\n"),lang)+"</code></pre>");continue;}
+    if(/^```/.test(l)){const fence=l.match(/^```+\s*([\w-]*)/);const lang=fence?fence[1]:"";const buf=[];i++;while(i<lines.length&&!/^```/.test(lines[i])){buf.push(lines[i]);i++;}i++;
+      if(/^mermaid$/i.test(lang)) out.push('<div class="mermaid">'+esc(buf.join("\n"))+'</div>');
+      else out.push('<pre><code class="lang-'+esc(lang)+'">'+highlightCode(buf.join("\n"),lang)+"</code></pre>");
+      continue;}
     let h=l.match(/^(#{1,6})\s+(.*)/); if(h){out.push("<h"+h[1].length+">"+inline(h[2])+"</h"+h[1].length+">");i++;continue;}
     if(/^\s*([-*+]|\d+\.)\s+/.test(l)){ const items=[];
       while(i<lines.length&&/^\s*([-*+]|\d+\.)\s+/.test(lines[i])){ const ln=lines[i];
@@ -690,6 +696,14 @@ function parseCsv(text){ return text.replace(/\r/g,"").split("\n").filter(l=>l.l
 
 function fileUrl(p){ return "file://"+p.split("/").map(encodeURIComponent).join("/"); }
 function renderMath(el){ try{ if(window.renderMathInElement) window.renderMathInElement(el,{delimiters:[{left:"$$",right:"$$",display:true},{left:"\\[",right:"\\]",display:true},{left:"$",right:"$",display:false},{left:"\\(",right:"\\)",display:false}],throwOnError:false}); }catch(e){} }
+// Render ```mermaid blocks (and .mmd files) into vector SVG diagrams via the bundled mermaid lib.
+let mermaidReady=false;
+async function renderMermaid(root){ const nodes=root&&root.querySelectorAll?[...root.querySelectorAll(".mermaid")]:[];
+  if(!nodes.length||!window.mermaid) return;
+  try{ if(!mermaidReady){ window.mermaid.initialize({startOnLoad:false,securityLevel:"loose",theme:"base",
+      themeVariables:{primaryColor:"#efe6d5",primaryTextColor:"#2a211e",primaryBorderColor:"#6e2436",lineColor:"#8a7d6e",secondaryColor:"#e9dfcd",tertiaryColor:"#fffdf8",fontFamily:"system-ui"}}); mermaidReady=true; }
+    await window.mermaid.run({nodes}); }catch(e){ /* leave raw text on parse error */ }
+}
 async function openPreview(path){
   const name=path.split("/").pop(), ext=(name.split(".").pop()||"").toLowerCase();
   const pv=$("preview"), body=$("pvbody"); $("pvname").textContent=name; $("pvic").textContent=ICONS[ext]||"◆"; pv.hidden=false;
@@ -702,8 +716,9 @@ async function openPreview(path){
     const r=await window.poly.readFile(path);
     if(!r.ok){ body.innerHTML='<pre class="raw">'+esc(r.error||"읽기 실패")+'</pre>'; return; }
     if(ext==="svg"){ body.innerHTML='<div class="svgwrap">'+r.content+'</div>'; return; }
-    if(ext==="md"||ext==="markdown"){ body.innerHTML='<div class="md">'+mdToHtml(r.content)+'</div>'; renderMath(body.firstChild); return; }
+    if(ext==="md"||ext==="markdown"){ body.innerHTML='<div class="md">'+mdToHtml(r.content)+'</div>'; renderMath(body.firstChild); renderMermaid(body); return; }
     if(ext==="tex"){ body.innerHTML='<div class="md">'+texToHtml(r.content)+'</div>'; renderMath(body.firstChild); return; }
+    if(ext==="mmd"||ext==="mermaid"){ body.innerHTML='<div class="md"><div class="mermaid">'+esc(r.content)+'</div></div>'; renderMermaid(body); return; }
     if(ext==="csv"){ body.innerHTML='<div class="gridwrap">'+gridTable(parseCsv(r.content))+'</div>'; return; }
     if(ext==="json"){ let pretty=r.content; try{pretty=JSON.stringify(JSON.parse(r.content),null,2);}catch{} body.innerHTML='<pre class="raw">'+esc(pretty)+'</pre>'; return; }
     body.innerHTML='<pre class="raw">'+esc(r.content)+'</pre>';

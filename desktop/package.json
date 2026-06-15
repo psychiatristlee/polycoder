@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "katex": "^0.16.11",
+    "mermaid": "^11.15.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
@@ -22,9 +23,16 @@
   "build": {
     "appId": "com.polyrun.desktop",
     "productName": "polyrun",
-    "files": ["main.js", "preload.js", "renderer.html", "node_modules/**/*"],
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.html",
+      "node_modules/**/*"
+    ],
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "artifactName": "polyrun-Setup-${version}.${ext}"
     },
     "nsis": {
@@ -33,11 +41,16 @@
       "allowToChangeInstallationDirectory": true
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "category": "public.app-category.developer-tools"
     },
     "linux": {
-      "target": ["AppImage"]
+      "target": [
+        "AppImage"
+      ]
     }
   }
 }
