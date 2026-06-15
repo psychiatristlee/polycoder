@@ -295,7 +295,11 @@
   .pvbody .md{padding:28px 34px;color:#2a2320;max-width:780px;line-height:1.75}
   .pvbody .md h1{font-size:27px}.pvbody .md h2{font-size:21px}.pvbody .md h3{font-size:17px}
   .pvbody .md h1,.pvbody .md h2,.pvbody .md h3{font-family:Georgia,serif;color:var(--accent2);margin:1.3em 0 .45em;line-height:1.3}
-  .pvbody .md pre{background:var(--code);padding:13px 15px;border-radius:9px;overflow:auto;border:1px solid var(--border)}
+  .pvbody .md pre{background:var(--code);padding:13px 15px;border-radius:9px;overflow:auto;border:1px solid var(--border);position:relative}
+  .pvbody .copybtn,.pvbody pre.raw .copybtn{position:absolute;top:7px;right:7px;border:1px solid var(--border2);background:var(--card);color:var(--mut);font-size:11px;padding:2px 9px;border-radius:7px;opacity:0;transition:opacity .12s}
+  .pvbody pre:hover .copybtn{opacity:.92}
+  .pvbody .copybtn:hover{border-color:var(--accent);color:var(--accent)}
+  .pvbody pre.raw{position:relative}
   .pvbody .md code{background:var(--code);padding:1px 6px;border-radius:5px;font-family:ui-monospace,Menlo,monospace;font-size:13px}
   .pvbody .md pre code{background:none;padding:0}
   .pvbody .md pre .hc{color:#8a9a7a;font-style:italic} /* comment */
@@ -394,7 +398,7 @@
      <div class="modelwrap" id="modellist"></div>
    </div>
    <div class="preview" id="preview" hidden>
-     <div class="pvhead"><span class="pvic" id="pvic">◆</span><span class="pvname" id="pvname"></span><button id="pvclose" title="닫기">✕</button></div>
+     <div class="pvhead"><span class="pvic" id="pvic">◆</span><span class="pvname" id="pvname"></span><button id="pvcopy" title="내용 복사">📋</button><button id="pvopen" title="외부 앱으로 열기">↗</button><button id="pvclose" title="닫기">✕</button></div>
      <div class="pvbody" id="pvbody"></div>
    </div>
   </main>
@@ -704,27 +708,38 @@ async function renderMermaid(root){ const nodes=root&&root.querySelectorAll?[...
       themeVariables:{primaryColor:"#efe6d5",primaryTextColor:"#2a211e",primaryBorderColor:"#6e2436",lineColor:"#8a7d6e",secondaryColor:"#e9dfcd",tertiaryColor:"#fffdf8",fontFamily:"system-ui"}}); mermaidReady=true; }
     await window.mermaid.run({nodes}); }catch(e){ /* leave raw text on parse error */ }
 }
+let pvCurrent={path:"",ext:"",content:""};
+function addCopyButtons(root){ root.querySelectorAll("pre").forEach(pre=>{ if(pre.querySelector(".copybtn"))return;
+  const btn=document.createElement("button"); btn.className="copybtn"; btn.textContent="복사";
+  btn.onclick=()=>{ const code=pre.querySelector("code"); const t=code?code.textContent:pre.textContent;
+    navigator.clipboard.writeText(t).then(()=>{ btn.textContent="복사됨!"; setTimeout(()=>btn.textContent="복사",1200); }).catch(()=>{}); };
+  pre.appendChild(btn); }); }
 async function openPreview(path){
   const name=path.split("/").pop(), ext=(name.split(".").pop()||"").toLowerCase();
   const pv=$("preview"), body=$("pvbody"); $("pvname").textContent=name; $("pvic").textContent=ICONS[ext]||"◆"; pv.hidden=false;
+  pvCurrent={path,ext,content:""};
   body.innerHTML='<div class="pvload"><span class="spin"></span> 로딩…</div>';
   try{
     if(["png","jpg","jpeg","gif","webp","ico","bmp"].includes(ext)){ body.innerHTML='<img class="pv" src="'+fileUrl(path)+'">'; return; }
     if(ext==="pdf"){ body.innerHTML='<iframe src="'+fileUrl(path)+'"></iframe>'; return; }
-    if(ext==="html"||ext==="htm"){ body.innerHTML='<iframe src="'+fileUrl(path)+'" sandbox="allow-same-origin"></iframe>'; return; }
+    if(ext==="html"||ext==="htm"){ body.innerHTML='<iframe src="'+fileUrl(path)+'" sandbox="allow-same-origin"></iframe>'; const h=await window.poly.readFile(path); if(h.ok) pvCurrent.content=h.content; return; }
     if(ext==="xlsx"||ext==="xls"){ const r=await window.poly.readXlsx(path); if(!r.ok){body.innerHTML='<pre class="raw">'+esc(r.error)+'</pre>';return;} body.innerHTML='<div class="gridwrap">'+r.sheets.map(s=>'<div class="sheetname">📊 '+esc(s.name)+'</div>'+gridTable(s.rows)).join("<br>")+'</div>'; return; }
     const r=await window.poly.readFile(path);
     if(!r.ok){ body.innerHTML='<pre class="raw">'+esc(r.error||"읽기 실패")+'</pre>'; return; }
+    pvCurrent.content=r.content;
     if(ext==="svg"){ body.innerHTML='<div class="svgwrap">'+r.content+'</div>'; return; }
-    if(ext==="md"||ext==="markdown"){ body.innerHTML='<div class="md">'+mdToHtml(r.content)+'</div>'; renderMath(body.firstChild); renderMermaid(body); return; }
+    if(ext==="md"||ext==="markdown"){ body.innerHTML='<div class="md">'+mdToHtml(r.content)+'</div>'; renderMath(body.firstChild); renderMermaid(body); addCopyButtons(body); return; }
     if(ext==="tex"){ body.innerHTML='<div class="md">'+texToHtml(r.content)+'</div>'; renderMath(body.firstChild); return; }
     if(ext==="mmd"||ext==="mermaid"){ body.innerHTML='<div class="md"><div class="mermaid">'+esc(r.content)+'</div></div>'; renderMermaid(body); return; }
     if(ext==="csv"){ body.innerHTML='<div class="gridwrap">'+gridTable(parseCsv(r.content))+'</div>'; return; }
-    if(ext==="json"){ let pretty=r.content; try{pretty=JSON.stringify(JSON.parse(r.content),null,2);}catch{} body.innerHTML='<pre class="raw">'+esc(pretty)+'</pre>'; return; }
-    body.innerHTML='<pre class="raw">'+esc(r.content)+'</pre>';
+    if(ext==="json"){ let pretty=r.content; try{pretty=JSON.stringify(JSON.parse(r.content),null,2);}catch{} body.innerHTML='<pre class="raw">'+esc(pretty)+'</pre>'; addCopyButtons(body); return; }
+    body.innerHTML='<pre class="raw">'+esc(r.content)+'</pre>'; addCopyButtons(body);
   }catch(e){ body.innerHTML='<pre class="raw">'+esc(String(e))+'</pre>'; }
 }
 $("pvclose").onclick=()=>{ $("preview").hidden=true; };
+$("pvopen").onclick=()=>{ if(pvCurrent.path) window.poly.openExternal(fileUrl(pvCurrent.path)); };
+$("pvcopy").onclick=()=>{ const b=$("pvcopy"); const t=pvCurrent.content||pvCurrent.path;
+  navigator.clipboard.writeText(t).then(()=>{ b.textContent="✓"; setTimeout(()=>b.textContent="📋",1200); }).catch(()=>{}); };
 
 /* ---- onboarding + run ---- */
 $("savekey").onclick=async()=>{const k=$("key").value.trim();if(!k)return;await window.poly.saveKey(k);$("key").value="";assistantStart();status("✓ OpenRouter 키 저장됨","ok");refreshStatus();};
