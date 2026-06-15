@@ -35,6 +35,12 @@ export interface PolymathConfig {
   local: {
     enabled: boolean;
     baseUrl: string;
+    /**
+     * Relay token for an authenticated remote subagent (GPU box behind the auth-proxy).
+     * Sent as the Bearer token to `local/*` targets instead of the OpenRouter key.
+     * Empty for a plain local Ollama (no auth).
+     */
+    authToken?: string;
   };
   /**
    * Procedural skill library: distill a reusable playbook from each verified success

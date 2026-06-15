@@ -55,10 +55,11 @@ export function totalRamGb(): number {
 /** Free space (GB) on the volume that will hold the model files (~ the home dir). */
 export function freeDiskGb(atPath = os.homedir()): number {
   try {
-    const s = fs.statfsSync(atPath);
+    const s = fs.statfsSync(atPath); // works on macOS/Linux/Windows in Node ≥ 18.15
     return Math.round((s.bsize * s.bavail) / 1024 ** 3);
   } catch {
-    // Fallback: parse `df -k` for the home dir.
+    // `df` doesn't exist on Windows — don't block model picks there; on POSIX parse df.
+    if (process.platform === "win32") return 4096; // generous sentinel; statfs above is the real check
     try {
       const out = execSync(`df -k "${atPath}"`, { encoding: "utf8" }).trim().split("\n").pop() ?? "";
       const cols = out.split(/\s+/);

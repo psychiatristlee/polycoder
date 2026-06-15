@@ -17,6 +17,12 @@ export interface OpenRouterOptions {
   title?: string;
   /** OpenAI-compatible local server (Ollama / LM Studio). Models prefixed `local/` route here. */
   localBaseUrl?: string;
+  /**
+   * Bearer token for an authenticated remote subagent (the auth-proxy fronting Ollama).
+   * Sent to `local/*` targets in place of the OpenRouter key. Omit for a plain local
+   * server with no auth (the proxy is the only thing that checks it).
+   */
+  localApiKey?: string;
 }
 
 export const LOCAL_PREFIX = "local/";
@@ -35,17 +41,23 @@ export class OpenRouterClient {
   private referer: string;
   private title: string;
   private localBaseUrl?: string;
+  private localApiKey?: string;
 
   constructor(opts: OpenRouterOptions = {}) {
     this.apiKey = opts.apiKey;
     this.referer = opts.referer ?? "https://github.com/psychiatristlee/polycoder";
     this.title = opts.title ?? "Polymath";
     this.localBaseUrl = opts.localBaseUrl?.replace(/\/$/, "");
+    this.localApiKey = opts.localApiKey;
   }
 
-  private headers(json = true): Record<string, string> {
+  private headers(json = true, isLocal = false): Record<string, string> {
+    // For a remote subagent the auth-proxy expects the relay token, NOT the OpenRouter
+    // key — never leak the OpenRouter key to a local/remote target. A bare local Ollama
+    // ignores the header entirely (empty token is fine).
+    const bearer = isLocal ? this.localApiKey ?? "" : this.apiKey ?? "";
     const h: Record<string, string> = {
-      Authorization: `Bearer ${this.apiKey ?? ""}`,
+      Authorization: `Bearer ${bearer}`,
       "HTTP-Referer": this.referer,
       "X-Title": this.title,
     };
@@ -65,10 +77,10 @@ export class OpenRouterClient {
     if (!isLocal && !this.apiKey) throw new OpenRouterError("No API key set. Run `poly login`.");
   }
 
-  /** List models from the local OpenAI-compatible server (Ollama / LM Studio). */
+  /** List models from the local OpenAI-compatible server (Ollama / LM Studio / subagent proxy). */
   async listLocalRawModels(): Promise<any[]> {
     if (!this.localBaseUrl) return [];
-    const res = await fetch(`${this.localBaseUrl}/models`);
+    const res = await fetch(`${this.localBaseUrl}/models`, { headers: this.headers(false, true) });
     if (!res.ok) throw new OpenRouterError(`Local server: failed to list models (${res.status})`, res.status);
     const json = (await res.json()) as { data?: any[] };
     return json.data ?? [];
@@ -116,7 +128,7 @@ export class OpenRouterClient {
     this.requireKeyFor(t.isLocal);
     const res = await fetch(`${t.base}/chat/completions`, {
       method: "POST",
-      headers: this.headers(),
+      headers: this.headers(true, t.isLocal),
       body: JSON.stringify(this.buildBody(req, false, t.model, t.isLocal)),
     });
     if (!res.ok) {
@@ -174,7 +186,7 @@ export class OpenRouterClient {
     };
     const res = await fetch(`${t.base}/chat/completions`, {
       method: "POST",
-      headers: this.headers(),
+      headers: this.headers(true, t.isLocal),
       body: JSON.stringify(body),
     });
     if (!res.ok) {
@@ -212,7 +224,7 @@ export class OpenRouterClient {
     this.requireKeyFor(t.isLocal);
     const res = await fetch(`${t.base}/chat/completions`, {
       method: "POST",
-      headers: this.headers(),
+      headers: this.headers(true, t.isLocal),
       body: JSON.stringify(this.buildBody(req, true, t.model, t.isLocal)),
     });
     if (!res.ok || !res.body) {

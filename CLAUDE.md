@@ -35,6 +35,19 @@ src/
 │   ├── store.ts        # skill files (frontmatter + md playbook) under ~/.config/polymath/skills
 │   ├── match.ts        # deterministic goal→skill match (zero model cost) + prompt-injection render
 │   └── distill.ts      # distill a VERIFIED success into a skill; dedupe → reinforce a near-duplicate
+├── subagent/           # remote GPU worker: serve a local LLM on one box, use it from another
+│   ├── gpu.ts          # GPU/VRAM detect (nvidia-smi/Apple/ROCm) + heaviest-model-that-fits pick
+│   ├── proxy.ts        # auth-proxy fronting Ollama: relay-token Bearer + route allowlist
+│   ├── tunnel.ts       # Cloudflare quick-tunnel (outbound-only) so no inbound ports needed
+│   ├── registry.ts     # account = sha256(openrouter key); node discovery via Firestore (best-effort)
+│   ├── serve.ts        # `subagent serve`: pull model → token → proxy → tunnel → register → autostart
+│   ├── link.ts         # `subagent link`: point this machine at a remote subagent (paste or auto)
+│   └── commands.ts     # serve | link | unlink | status | test | rotate
+├── supervise/          # supervision mode: poly drives an EXTERNAL coding agent + steers it
+│   ├── agents.ts       # adapters: claude | codex | cmd (headless launch + idle/max-timeout runner)
+│   ├── diff.ts         # non-destructive working-tree snapshot (temp GIT_INDEX_FILE) + tree diff
+│   ├── recommend.ts    # supervisor "brain": read diff vs goal → next instruction / done (LLM+heuristic)
+│   └── loop.ts         # runStep (one cycle) + runAuto (loop to maxRuns or done)
 ├── usage/
 │   ├── db.ts           # node:sqlite schema: usage_log + sessions/step_runs/command_runs + analysis queries
 │   ├── logger.ts       # record one completion's usage (date+model+command)
@@ -106,6 +119,32 @@ node dist/cli.js <args>
   `~/.config/polymath/skills/`. CLI: `poly skills [list|show <name>|rm <name>]`.
   Toggle with `poly config skills on|off` (`config.skills.enabled`, default on) or
   per-run `--no-skills`.
+
+## Subagent (remote GPU worker)
+
+- Turns a spare GPU box into a private always-on LLM worker. The GPU box runs
+  `poly subagent serve`: detects the accelerator, pulls the heaviest coding model that
+  fits, generates a per-node **relay token**, fronts Ollama with an **auth-proxy** (Ollama
+  has no auth — the proxy is the security boundary: relay-token Bearer + route allowlist +
+  brute-force lockout), and exposes it via a **Cloudflare quick tunnel** (outbound-only) or
+  `--lan`. `--install` sets up autostart (LaunchAgent / Scheduled Task) and exits.
+- The laptop runs `poly subagent link` (auto-discovers via the account = sha256(OpenRouter
+  key) in Firestore, or paste `--url/--token`); models then appear as `local/*` at $0 and
+  route normally (`poly run --model local/<id>`). **The OpenRouter key is never sent to the
+  subagent** — `local/*` calls carry the relay token instead (`OpenRouterClient.localApiKey`).
+- Install on a GPU box: `install/subagent-install.{sh,ps1}` (Node→build→serve --install).
+
+## Supervision mode (orchestrate an external agent)
+
+- `poly supervise [project] -g "<goal>"` drives ANOTHER coding agent (Claude Code / Codex
+  CLI / any `--agent cmd --agent-cmd "<tpl>"`), reads the **diff** that agent produced (via
+  a non-destructive temp-index tree snapshot — touches neither HEAD nor the user's index),
+  and the supervisor "brain" (routed `review` model, or `--model`) judges progress vs the
+  goal and emits the next instruction.
+- **Manual** (default): one cycle, then stop; re-run `poly supervise --continue` (the
+  "수정하기" button) to apply the recommendation. **AUTO** (`--auto -n N`): feed each
+  recommendation back to the worker until done or `maxRuns`. State persists in
+  `.poly-supervise.json`. `--json` emits NDJSON events (desktop/scripts).
 
 ## Firebase (optional analytics sync)
 

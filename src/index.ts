@@ -1,4 +1,7 @@
 import { Command } from "commander";
+import fs from "node:fs";
+import path from "node:path";
+import readline from "node:readline";
 import { randomUUID } from "node:crypto";
 import { createElement } from "react";
 import { render } from "ink";
@@ -21,13 +24,16 @@ import { search as searchLocal, statsByHost, docCount, clearIndex } from "./sear
 import { crawl as crawlSite } from "./search/crawl.js";
 import { serveSearch, installLaunchAgent } from "./search/server.js";
 import { logCompletion } from "./usage/logger.js";
-import { route } from "./router/router.js";
+import { route, routeOrBest } from "./router/router.js";
 import { runAgent, type AgentDeps, type AgentEvent } from "./agent/loop.js";
+import { runStep, runAuto, type SuperviseEvent } from "./supervise/loop.js";
+import { getAdapter, type AgentKind } from "./supervise/agents.js";
 import { ALL_TASK_TYPES } from "./planner/tasks.js";
 import type { RoutingObjective, RoutingPolicy } from "./router/policy.js";
 import { blendedPrice } from "./router/policy.js";
 import { table, usd, perMTok, tierColor, c } from "./util/format.js";
 import { runSetup, runUpdate } from "./setup/commands.js";
+import { registerSubagentCommands } from "./subagent/commands.js";
 import App from "./tui/App.tsx";
 
 export const VERSION = "0.5.0";
@@ -44,6 +50,8 @@ function client(config: PolymathConfig): OpenRouterClient {
     referer: config.referer,
     title: config.title,
     localBaseUrl: config.local.enabled ? config.local.baseUrl : undefined,
+    // Relay token for an authenticated remote subagent; harmless for a bare local Ollama.
+    localApiKey: config.local.enabled ? config.local.authToken : undefined,
   });
 }
 
@@ -555,6 +563,71 @@ cfg
     );
   });
 
+// ---- vision (describe images / video keyframes with a vision model) --------
+const IMG_MIME: Record<string, string> = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+  webp: "image/webp", bmp: "image/bmp", tiff: "image/tiff", heic: "image/heic",
+};
+function imageToDataUrl(file: string): string {
+  const ext = (file.split(".").pop() || "").toLowerCase();
+  const mime = IMG_MIME[ext] || "image/png";
+  return `data:${mime};base64,${fs.readFileSync(file).toString("base64")}`;
+}
+/** Pick a reliable vision model: well-known multimodal families first, cheapest among them. */
+function pickVisionModel(models: ModelInfo[]): ModelInfo | undefined {
+  const vision = models.filter((m) => m.capabilities.vision && !m.id.startsWith("local/"));
+  const GOOD = /(gpt-4o|gpt-4\.1|o[134]|claude.*(sonnet|opus|haiku)|gemini.*(flash|pro)|qwen.*vl|pixtral|llama.*(vision|maverick|scout)|grok.*vision)/i;
+  const known = vision.filter((m) => GOOD.test(m.id)).sort((a, b) => blendedPrice(a) - blendedPrice(b));
+  if (known.length) return known[0];
+  // Fall back to any vision model, cheapest non-free first (free tiers are flaky/rate-limited).
+  const paid = vision.filter((m) => blendedPrice(m) > 0).sort((a, b) => blendedPrice(a) - blendedPrice(b));
+  return paid[0] || vision[0];
+}
+const vision = program.command("vision").description("Multimodal helpers (image understanding)");
+vision
+  .command("describe")
+  .description("Describe image(s) with a vision model — emits text the agent can act on")
+  .argument("<images...>", "image file path(s)")
+  .option("-q, --question <text>", "what to extract (default: a detailed description)")
+  .option("-m, --model <id>", "vision model (default: cheapest vision-capable in catalog)")
+  .option("--json", "emit JSON {file,description}[] instead of text", false)
+  .option("-o, --objective <obj>", "cheapest | value | quality")
+  .action(async (images: string[], opts) => {
+    const config = loadConfig();
+    const cl = client(config);
+    const models = await loadCatalog(config);
+    let vm = opts.model ? models.find((m) => m.id === opts.model) : undefined;
+    if (opts.model && !vm) {
+      console.error(c.red(`Model not found: ${opts.model}`));
+      process.exit(1);
+    }
+    if (!vm) vm = pickVisionModel(models);
+    if (!vm) {
+      console.error(c.red("No vision-capable model available. Set an OpenRouter key (poly config set apikey …)."));
+      process.exit(1);
+    }
+    const q = opts.question || "Describe this image in detail: layout, text content, colors, notable objects, and anything an engineer would need to recreate or act on it.";
+    const out: { file: string; description: string }[] = [];
+    for (const img of images) {
+      if (!fs.existsSync(img)) {
+        if (!opts.json) console.error(c.yellow(`skip (missing): ${img}`));
+        continue;
+      }
+      try {
+        const r = await cl.visionComplete(vm.id, { user: q, images: [imageToDataUrl(img)] }, vm.pricing, 800);
+        out.push({ file: img, description: r.content.trim() });
+        if (!opts.json) {
+          console.log(c.bold("\n" + path.basename(img)) + c.dim(`  (${vm.id})`));
+          console.log(r.content.trim());
+        }
+      } catch (e: any) {
+        if (!opts.json) console.error(c.red(`✗ ${path.basename(img)}: ${e?.message || e}`));
+        else out.push({ file: img, description: `[error: ${e?.message || e}]` });
+      }
+    }
+    if (opts.json) process.stdout.write(JSON.stringify({ model: vm.id, results: out }) + "\n");
+  });
+
 // ---- agent (headless; streams JSON events for the desktop app) --------------
 program
   .command("agent")
@@ -584,7 +657,8 @@ program
     const buffered: string[] = [];
     const ask = (_q: string, _options: string[]): Promise<string> => {
       if (!rl) {
-        rl = (require("node:readline") as typeof import("node:readline")).createInterface({ input: process.stdin });
+        // Static import: a runtime require() throws in the ESM bundle (dist/cli.js).
+        rl = readline.createInterface({ input: process.stdin });
         rl.on("line", (line: string) => {
           const w = waiters.shift();
           if (w) w(line);
@@ -689,6 +763,236 @@ searchCmd
   .action((host?: string) => {
     console.log(c.green(`Removed ${clearIndex(host)} docs.`));
   });
+
+// ---- supervise (orchestrate an external coding agent) ----------------------
+interface SuperviseState {
+  goal: string;
+  agentKind: AgentKind;
+  cmdTemplate?: string;
+  recModelId?: string;
+  step: number;
+  lastInstruction: string;
+  nextInstruction: string;
+  history: { step: number; summary: string; progress: number; aligned: boolean; instruction: string }[];
+}
+const SUPERVISE_STATE_FILE = ".poly-supervise.json";
+
+function loadSuperviseState(dir: string): SuperviseState | null {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(dir, SUPERVISE_STATE_FILE), "utf8")) as SuperviseState;
+  } catch {
+    return null;
+  }
+}
+function saveSuperviseState(dir: string, s: SuperviseState): void {
+  try {
+    fs.writeFileSync(path.join(dir, SUPERVISE_STATE_FILE), JSON.stringify(s, null, 2));
+  } catch {
+    /* non-fatal */
+  }
+}
+
+function renderSuperviseEvent(e: SuperviseEvent): void {
+  switch (e.type) {
+    case "agent-start":
+      console.log(c.bold(`\n▶ Step ${e.step}`) + c.dim(`  →  ${e.agent}`));
+      console.log(c.dim("  instruction: ") + e.instruction.replace(/\n/g, " ").slice(0, 200));
+      break;
+    case "agent-done":
+      console.log(
+        c.dim("  worker: ") +
+          (e.killed ? c.yellow(`killed`) : c.green(`exit ${e.code}`)) +
+          c.dim(`  (${(e.ms / 1000).toFixed(1)}s)`)
+      );
+      break;
+    case "diff": {
+      const d = e.diff;
+      console.log(
+        c.dim("  diff: ") + (d.empty ? c.yellow("no changes") : `${d.filesChanged} file(s) ` + c.green(`+${d.insertions}`) + " " + c.red(`-${d.deletions}`))
+      );
+      if (d.stat) for (const line of d.stat.split("\n").slice(0, 8)) console.log(c.dim("    " + line));
+      break;
+    }
+    case "recommendation": {
+      const r = e.rec;
+      const bar = "█".repeat(Math.round(r.progress / 10)).padEnd(10, "░");
+      console.log(c.bold("  ⟐ supervisor: ") + (r.done ? c.green("DONE") : r.aligned ? c.green("on track") : c.yellow("off track")) + c.dim(`  [${bar}] ${r.progress}%`) + (r.heuristic ? c.dim(" (heuristic)") : ""));
+      console.log(c.dim("  summary: ") + r.summary);
+      for (const con of r.concerns) console.log(c.yellow("  ⚠ ") + con);
+      if (!r.done) console.log(c.cyan("  → next: ") + r.nextInstruction.replace(/\n/g, " ").slice(0, 240));
+      break;
+    }
+  }
+}
+
+program
+  .command("supervise")
+  .description("Supervision mode: drive an external coding agent (Claude Code/Codex), read its diff, recommend the next step")
+  .argument("[project]", "project directory", ".")
+  .option("-g, --goal <text>", "the high-level goal to accomplish")
+  .option("-a, --agent <kind>", "worker agent: claude | codex | cmd (default: auto-detect)")
+  .option("--agent-cmd <template>", "command for the `cmd` agent ({prompt} placeholder optional)")
+  .option("--auto", "auto-loop: feed each recommendation back to the worker", false)
+  .option("-n, --max-runs <n>", "max auto runs", "5")
+  .option("--continue", "apply the last recommended next instruction (manual stepping)", false)
+  .option("--instruction <text>", "override the instruction for this step")
+  .option("-m, --model <id>", "recommendation model (default: routed 'review' model)")
+  .option("-o, --objective <obj>", "cheapest | value | quality")
+  .option("--no-free", "exclude free-tier models from routing")
+  .option("--idle <s>", "kill the worker after N seconds of silence", "180")
+  .option("--max <s>", "hard cap per worker run (seconds)", "900")
+  .option("--json", "emit newline-delimited JSON events (for the desktop app / scripts)", false)
+  .action(async (project: string, opts) => {
+    const startedAt = Date.now();
+    const emitEvent = opts.json
+      ? (ev: SuperviseEvent) => process.stdout.write(JSON.stringify(ev) + "\n")
+      : renderSuperviseEvent;
+    const emitJson = (obj: any) => {
+      if (opts.json) process.stdout.write(JSON.stringify(obj) + "\n");
+    };
+    const dir = path.resolve(project || ".");
+    if (!fs.existsSync(dir)) {
+      console.error(c.red(`No such directory: ${dir}`));
+      process.exit(1);
+    }
+    const config = loadConfig();
+    const prior = loadSuperviseState(dir);
+
+    // Resolve goal + agent: new session needs --goal; --continue resumes from state.
+    const goal = opts.goal || prior?.goal;
+    if (!goal) {
+      console.error(c.red("A goal is required for a new session: poly supervise -g \"<goal>\" [project]"));
+      process.exit(1);
+    }
+    const agentKind: AgentKind = (opts.agent as AgentKind) || prior?.agentKind || autoDetectAgent();
+    const cmdTemplate = opts.agentCmd || prior?.cmdTemplate;
+    const adapter = getAdapter(agentKind, cmdTemplate);
+    if (!adapter.available) {
+      console.error(
+        c.red(
+          agentKind === "cmd"
+            ? "The `cmd` agent needs --agent-cmd \"<command>\"."
+            : `Worker "${adapter.bin}" is not on PATH. Install it, or use --agent cmd --agent-cmd "<command>".`
+        )
+      );
+      process.exit(1);
+    }
+
+    // Recommendation model: explicit --model, else the routed "review" model.
+    const policy = buildPolicy(config, opts);
+    const models = await loadCatalog(config);
+    let recModel = opts.model ? models.find((m) => m.id === opts.model) : undefined;
+    if (opts.model && !recModel) {
+      console.error(c.red(`Model not found in catalog: ${opts.model}`));
+      process.exit(1);
+    }
+    if (!recModel) {
+      const routed = routeOrBest("review", models, policy);
+      if (!routed) {
+        console.error(c.red("No model available to power the supervisor. Set a key or link a subagent."));
+        process.exit(1);
+      }
+      recModel = routed.model;
+    }
+
+    const cl = client(config);
+    let promptTokens = 0,
+      completionTokens = 0,
+      costUsd = 0;
+    const onUsage = (r: any) => {
+      promptTokens += r.usage?.promptTokens ?? 0;
+      completionTokens += r.usage?.completionTokens ?? 0;
+      costUsd += r.costUsd ?? 0;
+    };
+
+    emitJson({ type: "session", project: dir, worker: adapter.label, supervisor: recModel.id, goal, mode: opts.auto ? "auto" : "manual" });
+    if (!opts.json) {
+      console.log(c.bold("\n⟐ poly supervise"));
+      console.log(c.dim("  project   : ") + dir);
+      console.log(c.dim("  worker    : ") + adapter.label);
+      console.log(c.dim("  supervisor: ") + recModel.id);
+      console.log(c.dim("  goal      : ") + goal);
+    }
+
+    const deps = {
+      client: cl,
+      recModel,
+      onEvent: emitEvent,
+      onUsage,
+      idleMs: (parseInt(opts.idle, 10) || 180) * 1000,
+      maxMs: (parseInt(opts.max, 10) || 900) * 1000,
+    };
+    const sopts = { cwd: dir, goal, agentKind, cmdTemplate };
+
+    if (opts.auto) {
+      // Fresh auto run starts from the goal; --continue resumes from the last recommendation.
+      const first = opts.instruction || (opts.continue && prior?.nextInstruction) || goal;
+      const maxRuns = Math.max(1, parseInt(opts.maxRuns, 10) || 5);
+      if (!opts.json) console.log(c.dim(`  mode      : AUTO (≤${maxRuns} runs)\n`));
+      const res = await runAuto(sopts, first, maxRuns, deps);
+      const last = res.steps[res.steps.length - 1];
+      const state: SuperviseState = {
+        goal,
+        agentKind,
+        cmdTemplate,
+        recModelId: recModel.id,
+        step: (prior?.step ?? 0) + res.steps.length,
+        lastInstruction: last?.instruction ?? first,
+        nextInstruction: last?.recommendation.nextInstruction ?? "",
+        // Append to prior history (resuming an AUTO session must not discard earlier steps).
+        history: [
+          ...(prior?.history ?? []),
+          ...res.steps.map((s) => ({ step: (prior?.step ?? 0) + s.step, summary: s.recommendation.summary, progress: s.recommendation.progress, aligned: s.recommendation.aligned, instruction: s.instruction })),
+        ],
+      };
+      saveSuperviseState(dir, state);
+      emitJson({ type: "result", done: res.done, stoppedReason: res.stoppedReason, runs: res.steps.length, costUsd, nextInstruction: state.nextInstruction });
+      if (!opts.json) {
+        console.log(
+          "\n" + c.bold(res.done ? c.green("✓ Goal reached") : c.yellow(`■ Stopped: ${res.stoppedReason}`)) + c.dim(`  · ${res.steps.length} run(s) · ${usd(costUsd)}`)
+        );
+        if (!res.done && state.nextInstruction) console.log(c.dim("  resume: ") + c.cyan(`poly supervise --continue "${dir}"`));
+      }
+    } else {
+      // MANUAL: one step. Continue from the last recommendation if state exists, else the
+      // goal; --instruction overrides. (The "수정하기" button just re-runs this command.)
+      const step = (prior?.step ?? 0) + 1;
+      const instruction = opts.instruction || prior?.nextInstruction || goal;
+      if (!opts.json) console.log(c.dim(`  mode      : manual (step ${step})\n`));
+      const adapterForStep = getAdapter(agentKind, cmdTemplate);
+      const s = await runStep(sopts, instruction, step, deps, adapterForStep);
+      const state: SuperviseState = {
+        goal,
+        agentKind,
+        cmdTemplate,
+        recModelId: recModel.id,
+        step,
+        lastInstruction: instruction,
+        nextInstruction: s.recommendation.nextInstruction,
+        history: [...(prior?.history ?? []), { step, summary: s.recommendation.summary, progress: s.recommendation.progress, aligned: s.recommendation.aligned, instruction }],
+      };
+      saveSuperviseState(dir, state);
+      emitJson({ type: "result", done: s.recommendation.done, step, costUsd, nextInstruction: s.recommendation.nextInstruction });
+      if (!opts.json) {
+        if (s.recommendation.done) {
+          console.log("\n" + c.green("✓ Supervisor says the goal is met.") + c.dim(`  · ${usd(costUsd)}`));
+        } else {
+          console.log("\n" + c.dim("Apply the recommendation: ") + c.cyan(`poly supervise --continue "${dir}"`) + c.dim("   (or --auto to loop)"));
+        }
+      }
+    }
+
+    trackCommand({ command: "supervise", startedAt, args: goal, objective: policy.objective, promptTokens, completionTokens, costUsd });
+  });
+
+function autoDetectAgent(): AgentKind {
+  if (getAdapter("claude").available) return "claude";
+  if (getAdapter("codex").available) return "codex";
+  return "claude"; // report a helpful "not on PATH" error downstream
+}
+
+// ---- subagent (remote GPU worker) ------------------------------------------
+registerSubagentCommands(program);
 
 program.parseAsync().catch((err) => {
   console.error(c.red(err?.message ?? String(err)));
