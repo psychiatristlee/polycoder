@@ -33,6 +33,7 @@ import type { RoutingObjective, RoutingPolicy } from "./router/policy.js";
 import { blendedPrice } from "./router/policy.js";
 import { table, usd, perMTok, tierColor, c } from "./util/format.js";
 import { runSetup, runUpdate } from "./setup/commands.js";
+import { LOCAL_MODEL_CATALOG, installedModels, totalRamGb, freeDiskGb, ensureServer, ollamaInstalled, ollamaInstallPlan, run as runCmd, ollamaCmd } from "./setup/localllm.js";
 import { registerSubagentCommands } from "./subagent/commands.js";
 import App from "./tui/App.tsx";
 
@@ -990,6 +991,89 @@ function autoDetectAgent(): AgentKind {
   if (getAdapter("codex").available) return "codex";
   return "claude"; // report a helpful "not on PATH" error downstream
 }
+
+// ---- local (manage multiple local models; poly auto-routes per task) -------
+const localCmd = program.command("local").description("Manage local LLM models — download several; poly auto-switches per task/cost");
+localCmd
+  .command("catalog", { isDefault: true })
+  .description("Recommended local models + what fits this machine")
+  .option("--json", "machine-readable output", false)
+  .action(async (opts) => {
+    const have = await installedModels();
+    const ram = totalRamGb();
+    const disk = freeDiskGb();
+    const rows = LOCAL_MODEL_CATALOG.map((m) => ({
+      id: m.id,
+      label: m.label,
+      sizeGb: m.diskGb,
+      paramsB: m.paramsB,
+      note: m.note,
+      installed: have.includes(m.id),
+      fits: have.includes(m.id) || (m.minRamGb <= ram && disk >= m.diskGb + 3),
+    }));
+    if (opts.json) {
+      process.stdout.write(JSON.stringify({ ramGb: ram, freeDiskGb: disk, enabled: loadConfig().local.enabled, models: rows }) + "\n");
+      return;
+    }
+    console.log(c.bold(`\nLocal model catalog`) + c.dim(`  (RAM ${ram}GB · free disk ${disk}GB)\n`));
+    for (const r of rows) {
+      const mark = r.installed ? c.green("✓ 설치됨") : r.fits ? c.dim("· 설치가능") : c.red("✗ 용량부족");
+      console.log(`  ${mark}  ${r.label.padEnd(22)} ${c.dim("~" + r.sizeGb + "GB")}  ${c.dim(r.note)}`);
+    }
+    console.log(c.dim("\n  여러 개 받아두면 poly가 작업에 따라 자동으로 골라 씁니다.  설치: ") + c.cyan("poly local pull <id>"));
+  });
+localCmd
+  .command("list")
+  .description("Installed local models")
+  .option("--json", "machine-readable output", false)
+  .action(async (opts) => {
+    const have = await installedModels();
+    const cfg = loadConfig();
+    if (opts.json) {
+      process.stdout.write(JSON.stringify({ enabled: cfg.local.enabled, baseUrl: cfg.local.baseUrl, models: have }) + "\n");
+      return;
+    }
+    console.log(c.bold(`Installed local models (${have.length})`) + c.dim(` · 로컬 라우팅 ${cfg.local.enabled ? "on" : "off"}`));
+    for (const m of have) console.log("  " + c.green("local/" + m));
+    if (!have.length) console.log(c.dim("  (없음) — poly local pull <id>"));
+  });
+localCmd
+  .command("pull")
+  .description("Download a local model and enable local routing")
+  .argument("<id>", "model id, e.g. qwen2.5-coder:7b")
+  .option("-y, --yes", "auto-install Ollama if missing", false)
+  .action(async (id: string, opts) => {
+    if (!ollamaInstalled()) {
+      const plan = ollamaInstallPlan();
+      if (plan.canAuto && plan.command && opts.yes) {
+        console.log(c.cyan("Installing Ollama…"));
+        await runCmd(plan.command.cmd, plan.command.args);
+      }
+      if (!ollamaInstalled()) {
+        console.log(c.yellow("Ollama not installed. " + plan.manual));
+        process.exit(1);
+      }
+    }
+    await ensureServer();
+    console.log(c.cyan(`Pulling ${id}…`));
+    const ok = await runCmd(ollamaCmd(), ["pull", id]);
+    if (!ok) {
+      console.log(c.red(`Failed to pull ${id}.`));
+      process.exit(1);
+    }
+    const cfg = loadConfig();
+    cfg.local.enabled = true;
+    saveConfig(cfg);
+    console.log(c.green(`✓ ${id} ready → local/${id} ($0). 로컬 라우팅 켜짐.`));
+  });
+localCmd
+  .command("rm")
+  .description("Remove an installed local model")
+  .argument("<id>", "model id")
+  .action(async (id: string) => {
+    const ok = await runCmd(ollamaCmd(), ["rm", id]);
+    console.log(ok ? c.green(`✓ removed ${id}`) : c.red(`failed to remove ${id}`));
+  });
 
 // ---- subagent (remote GPU worker) ------------------------------------------
 registerSubagentCommands(program);
