@@ -103,6 +103,11 @@
   .qopt.sel{border-color:var(--accent);background:var(--bubble);font-weight:600}
   .qopt:disabled{opacity:.55;cursor:default}
   .ok{color:var(--green)} .info{color:var(--blue)} .err{color:var(--accent2)} .step{color:var(--accent2);font-weight:600}
+  .qpend{max-width:720px;margin:2px auto 8px;padding:0 28px;font-size:12px;color:var(--soft);text-align:right}
+  .qcustomrow{display:flex;gap:7px;margin-top:4px}
+  .qcustomrow input{flex:1;padding:9px 12px;border-radius:10px;border:1px solid var(--border2);background:var(--card);color:var(--fg);font:inherit;font-size:13.5px;outline:none}
+  .qcustomrow input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(110,36,54,.08)}
+  .qcustom{color:var(--accent2)}
   .hello{text-align:center;margin-top:15vh;color:var(--mut)}
   .hello h1{font-family:Georgia,serif;font-weight:600;color:var(--fg);font-size:31px;margin:0 0 8px;letter-spacing:-.4px}
 
@@ -398,9 +403,22 @@ function renderQuestion(q,options){ if(!cur) assistantStart(); busyOff();
   const wrap=document.createElement("div"); wrap.className="qbox";
   const t=document.createElement("div"); t.className="qq"; t.textContent="❓ "+q; wrap.appendChild(t);
   const ob=document.createElement("div"); ob.className="qopts";
+  const choose=(val)=>{ ob.querySelectorAll("button,input").forEach(x=>x.disabled=true); window.poly.answer(val); status("선택: "+val,"ok"); busyOn("계속 진행 중…"); };
   (options||[]).forEach(o=>{ const b=document.createElement("button"); b.className="qopt"; b.textContent=o;
-    b.onclick=()=>{ window.poly.answer(o); ob.querySelectorAll("button").forEach(x=>x.disabled=true); b.classList.add("sel"); status("선택: "+o,"ok"); busyOn("계속 진행 중…"); };
+    b.onclick=()=>{ b.classList.add("sel"); choose(o); };
     ob.appendChild(b); });
+  // Always offer a free-text answer so the user isn't boxed into the given choices.
+  const custom=document.createElement("button"); custom.className="qopt qcustom"; custom.textContent="✏️ 직접 입력…";
+  custom.onclick=()=>{
+    custom.remove();
+    const row=document.createElement("div"); row.className="qcustomrow";
+    const inp=document.createElement("input"); inp.type="text"; inp.placeholder="원하는 내용을 직접 입력하세요…";
+    const send=document.createElement("button"); send.className="qopt sel"; send.textContent="보내기";
+    const submit=()=>{ const v=inp.value.trim(); if(!v) return; choose(v); };
+    send.onclick=submit; inp.addEventListener("keydown",e=>{ if(e.key==="Enter"){e.preventDefault();submit();} });
+    row.appendChild(inp); row.appendChild(send); ob.appendChild(row); inp.focus(); scroll();
+  };
+  ob.appendChild(custom);
   wrap.appendChild(ob); cur.appendChild(wrap); scroll();
 }
 
@@ -523,16 +541,30 @@ ta.addEventListener("paste",async(e)=>{ const items=[...(e.clipboardData&&e.clip
     if(blob.path){ const kind=await window.poly.attachmentKind(blob.path); addAttachments([{path:blob.path,name:blob.name||"pasted",kind,thumb:await readThumb(blob)}]); }
     else { const du=await readThumb(blob); const saved=await window.poly.saveBlob("pasted",du); if(saved) addAttachments([saved]); } } } });
 
+let queue=[];   // follow-up messages entered while a run is in progress
 function run(){ const goal=ta.value.trim(); if(!goal && !attachments.length) return;
   if(!hasKey && !hasLocal){ openLogin(); return; }
   if(!cwd){ assistantStart(); status("먼저 작업 폴더를 열어주세요.","err"); return; }
-  if(running) return; running=true; $("run").disabled=true; $("title").textContent=(goal||attachments.map(a=>a.name).join(", ")).slice(0,42);
   const atts=attachments.slice();
+  const label=goal||atts.map(a=>a.name).join(", ");
   userMsg(goal+(atts.length?("\n📎 "+atts.map(a=>a.name).join(", ")):""));
-  touchConvTitle(goal||atts.map(a=>a.name).join(", "));
+  touchConvTitle(label);
   ta.value=""; ta.style.height="auto"; attachments=[]; renderAttachTray();
+  if(running){ // queue it — runs automatically when the current task finishes
+    queue.push({goal,atts});
+    const m=document.createElement("div"); m.className="qpend"; m.textContent="⏳ 대기 중 ("+queue.length+") — 현재 작업이 끝나면 실행됩니다";
+    chat.appendChild(m); scroll(true); return;
+  }
+  startRun(goal,atts,label);
+}
+function startRun(goal,atts,label){ running=true; $("title").textContent=(label||"").slice(0,42);
   assistantStart(); busyOn(atts.length?"첨부 처리 중…":"작업 중…");
   window.poly.runAgent(goal,cwd,atts);
+}
+function dequeue(){ if(!queue.length) return; const n=queue.shift();
+  // remove the oldest pending marker
+  const p=chat.querySelector(".qpend"); if(p) p.remove();
+  startRun(n.goal,n.atts,n.goal||(n.atts||[]).map(a=>a.name).join(", "));
 }
 $("run").onclick=run;
 
@@ -566,7 +598,9 @@ window.poly.onEvent((e)=>{
     case "quality": status("📊 품질 "+e.overall+"/100"+(e.dims&&e.dims.design!=null?(" · 디자인 "+e.dims.design):""),"info"); break;
     case "done": busyOff(); status("완료 · "+e.calls+" calls"+(e.totalCostUsd!=null?(" · $"+e.totalCostUsd.toFixed(4)):""),"ok"); break;
     case "error": status("⚠ "+e.message,"err"); if(/api key|key set|poly login|로그인/i.test(e.message||"")){ refreshStatus().then(()=>{ if(!hasKey&&!hasLocal) openLogin(); }); } break;
-    case "exit": busyOff(); running=false; $("run").disabled=false; refreshFiles(); snapshotCur(); persistConvs(); if(shotPath) setTimeout(()=>window.poly.capture(shotPath),1200); break;
+    case "exit": busyOff(); running=false; refreshFiles(); snapshotCur(); persistConvs(); if(shotPath) setTimeout(()=>window.poly.capture(shotPath),1200);
+      if(queue.length) setTimeout(dequeue,300);   // run the next queued message
+      break;
   }
 });
 window.poly.onAuto((a)=>{ setCwd(a.cwd); if(a.goal) ta.value=a.goal; shotPath=a.shot||"";
