@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("poly", {
   attachmentKind: (p) => ipcRenderer.invoke("attachment-kind", p),
   saveBlob: (name, dataUrl) => ipcRenderer.invoke("save-blob", { name, dataUrl }),
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
+  exportPdf: (opts) => ipcRenderer.invoke("export-pdf", opts),
   // auth + consent + telemetry
   authStatus: () => ipcRenderer.invoke("auth-status"),
   signInGoogle: () => ipcRenderer.invoke("sign-in-google"),

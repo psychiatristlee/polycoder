@@ -305,6 +305,8 @@
   .pvhead{height:52px;display:flex;align-items:center;gap:9px;padding:0 16px;border-bottom:1px solid var(--border);font-size:13px;color:var(--mut);background:var(--bg)}
   .pvhead .pvic{color:var(--accent)} .pvhead .pvname{flex:1;color:var(--fg);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .pvhead button{background:transparent;border:0;color:var(--mut);font-size:16px;border-radius:7px;padding:4px 8px}.pvhead button:hover{background:var(--panel2)}
+  .pvhead .pvpdf{font-size:11px;font-weight:700;border:1px solid var(--border2);color:var(--accent2);padding:3px 9px}
+  .pvhead .pvpdf:hover{border-color:var(--accent);background:var(--bubble)}.pvhead .pvpdf:disabled{opacity:.5}
   .pvbody{flex:1;overflow:auto;background:var(--card)}
   .pvbody iframe{width:100%;height:100%;border:0;background:#fff}
   .pvload{display:flex;align-items:center;justify-content:center;gap:10px;height:100%;color:var(--mut)}
@@ -414,7 +416,7 @@
      <div class="modelwrap" id="modellist"></div>
    </div>
    <div class="preview" id="preview" hidden>
-     <div class="pvhead"><span class="pvic" id="pvic">◆</span><span class="pvname" id="pvname"></span><button id="pvcopy" title="내용 복사">📋</button><button id="pvopen" title="외부 앱으로 열기">↗</button><button id="pvclose" title="닫기">✕</button></div>
+     <div class="pvhead"><span class="pvic" id="pvic">◆</span><span class="pvname" id="pvname"></span><button id="pvpdf" class="pvpdf" title="PDF로 내보내기">PDF</button><button id="pvcopy" title="내용 복사">📋</button><button id="pvopen" title="외부 앱으로 열기">↗</button><button id="pvclose" title="닫기">✕</button></div>
      <div class="pvbody" id="pvbody"></div>
    </div>
   </main>
@@ -610,14 +612,19 @@ function renderFolders(){ const box=$("folders"); if(!box) return; box.innerHTML
 /* ---- markdown ---- */
 function mdToHtml(md){
   const lines=md.replace(/\r/g,"").split("\n"); let out=[],i=0;
-  const inline=(t)=>esc(t)
-    .replace(/`([^`]+)`/g,(_,c)=>"<code>"+c+"</code>")
-    .replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>")
-    .replace(/~~([^~]+)~~/g,"<del>$1</del>")
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g,'<img alt="$1" src="$2" style="max-width:100%;border-radius:8px">')   // image before link
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2">$1</a>')
-    .replace(/\*([^*]+)\*/g,"<em>$1</em>")
-    .replace(/(^|[^_])_([^_]+)_(?!_)/g,"$1<em>$2</em>");
+  const inline=(t)=>{
+    // Protect inline/display math from Markdown transforms — otherwise _ in LaTeX subscripts
+    // (e.g. R_{t-1}) is eaten by the italic rule and breaks KaTeX's $…$ delimiter scan.
+    const math=[]; let s=esc(t).replace(/\$\$[\s\S]+?\$\$|\$[^$\n]+?\$/g,(m)=>{ math.push(m); return " "+(math.length-1)+" "; });
+    s=s.replace(/`([^`]+)`/g,(_,c)=>"<code>"+c+"</code>")
+      .replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>")
+      .replace(/~~([^~]+)~~/g,"<del>$1</del>")
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g,'<img alt="$1" src="$2" style="max-width:100%;border-radius:8px">')   // image before link
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2">$1</a>')
+      .replace(/\*([^*]+)\*/g,"<em>$1</em>")
+      .replace(/(^|[^_])_([^_]+)_(?!_)/g,"$1<em>$2</em>");
+    return s.replace(/ (\d+) /g,(_,n)=>math[+n]);   // restore math verbatim
+  };
   while(i<lines.length){ let l=lines[i];
     if(/^```/.test(l)){const fence=l.match(/^```+\s*([\w-]*)/);const lang=fence?fence[1]:"";const buf=[];i++;while(i<lines.length&&!/^```/.test(lines[i])){buf.push(lines[i]);i++;}i++;
       if(/^mermaid$/i.test(lang)) out.push('<div class="mermaid">'+esc(buf.join("\n"))+'</div>');
@@ -741,6 +748,7 @@ async function openPreview(path){
   const name=path.split("/").pop(), ext=(name.split(".").pop()||"").toLowerCase();
   const pv=$("preview"), body=$("pvbody"); $("pvname").textContent=name; $("pvic").textContent=ICONS[ext]||"◆"; pv.hidden=false;
   pvCurrent={path,ext,content:""};
+  $("pvpdf").style.display=PDF_OK.test(ext)?"":"none";
   body.innerHTML='<div class="pvload"><span class="spin"></span> 로딩…</div>';
   try{
     if(["png","jpg","jpeg","gif","webp","ico","bmp"].includes(ext)){ body.innerHTML='<img class="pv" src="'+fileUrl(path)+'">'; return; }
@@ -761,6 +769,28 @@ async function openPreview(path){
 }
 $("pvclose").onclick=()=>{ $("preview").hidden=true; };
 $("pvopen").onclick=()=>{ if(pvCurrent.path) window.poly.openExternal(fileUrl(pvCurrent.path)); };
+// Export the rendered preview to a PDF (printToPDF in main). Only for rendered doc types.
+const PDF_OK=/^(md|markdown|tex|mmd|mermaid|csv|json|svg)$/;
+function buildExportHtml(){
+  const css=(document.querySelector("style")||{}).textContent||"";
+  const katexCss=new URL("node_modules/katex/dist/katex.min.css", location.href).href;
+  return '<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="'+katexCss+'">'
+    +'<style>'+css+'\nhtml,body{height:auto;display:block;overflow:visible;background:#fff;margin:0}'
+    +'.preview{position:static;display:block;width:auto;min-width:0;border:0}.pvhead{display:none}'
+    +'.pvbody{overflow:visible;height:auto}.pvbody .md{max-width:none}.copybtn{display:none}</style></head>'
+    +'<body><div class="preview"><div class="pvbody">'+$("pvbody").innerHTML+'</div></div></body></html>';
+}
+async function exportPdf(){ if(!pvCurrent.path||!PDF_OK.test(pvCurrent.ext)) return;
+  const b=$("pvpdf"), old=b.textContent; b.textContent="…"; b.disabled=true;
+  try{ const outPath=pvCurrent.path.replace(/\.[^.\/]+$/,"")+".pdf";
+    const baseDir=pvCurrent.path.replace(/[\/\\][^\/\\]*$/,"");
+    const r=await window.poly.exportPdf({html:buildExportHtml(), outPath, baseDir});
+    if(r&&r.ok){ b.textContent="✓"; refreshFiles(); window.poly.openExternal(fileUrl(r.path)); }
+    else b.textContent="실패";
+  }catch(e){ b.textContent="실패"; }
+  setTimeout(()=>{ b.textContent=old; b.disabled=false; },1400);
+}
+$("pvpdf").onclick=exportPdf;
 $("pvcopy").onclick=()=>{ const b=$("pvcopy"); const t=pvCurrent.content||pvCurrent.path;
   navigator.clipboard.writeText(t).then(()=>{ b.textContent="✓"; setTimeout(()=>b.textContent="📋",1200); }).catch(()=>{}); };
 

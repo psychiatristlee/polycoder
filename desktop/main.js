@@ -439,6 +439,26 @@ ipcMain.handle("capture", async (_e, file) => {
     return false;
   }
 });
+// Export a rendered preview (full HTML string) to a PDF via an offscreen window + printToPDF.
+// A temp .html is written in baseDir so relative/file:// resources (KaTeX fonts, images) resolve.
+ipcMain.handle("export-pdf", async (_e, { html, outPath, baseDir }) => {
+  let off, tmp;
+  try {
+    tmp = path.join(baseDir && fs.existsSync(baseDir) ? baseDir : os.tmpdir(), ".poly-export-" + Date.now() + ".html");
+    fs.writeFileSync(tmp, html);
+    off = new BrowserWindow({ show: false, webPreferences: { offscreen: false } });
+    await off.loadFile(tmp);
+    await new Promise((r) => setTimeout(r, 350)); // let fonts/layout settle
+    const pdf = await off.webContents.printToPDF({ printBackground: true, pageSize: "A4", margins: { marginType: "default" } });
+    fs.writeFileSync(outPath, pdf);
+    return { ok: true, path: outPath };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  } finally {
+    try { if (off && !off.isDestroyed()) off.destroy(); } catch {}
+    try { if (tmp && fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch {}
+  }
+});
 // Attachments: file picker → [{path,name,kind,thumb}], where thumb is a small data URL for images.
 ipcMain.handle("pick-attachments", async () => {
   const r = await dialog.showOpenDialog(dialogParent(), {
