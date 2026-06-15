@@ -1,7 +1,7 @@
 import type { ModelInfo } from "../providers/types.js";
 import { TASK_SPECS, type TaskType } from "../planner/tasks.js";
 import { blendedPrice, tierAtLeast, tierRank, type RoutingPolicy } from "./policy.js";
-import { taskStrength, TASK_MIN_STRENGTH, TASK_SKILL } from "../models/strengths.js";
+import { taskStrength, TASK_MIN_STRENGTH, TASK_SKILL, isReasoningModel } from "../models/strengths.js";
 import type { Tier } from "../providers/types.js";
 import { findModel } from "../models/parse.js";
 
@@ -64,7 +64,7 @@ export function candidatesFor(
   // Effective floor is the higher of the task's own floor and any escalation floor.
   const minTier: Tier =
     policy.tierFloor && tierRank(policy.tierFloor) > tierRank(spec.minTier) ? policy.tierFloor : spec.minTier;
-  return models.filter((m) => {
+  const eligible = models.filter((m) => {
     if (m.id === "openrouter/auto") return false;
     // Route to cloud only (user has a key and wants the stronger models).
     if (policy.excludeLocal && m.id.startsWith("local/")) return false;
@@ -81,6 +81,14 @@ export function candidatesFor(
     }
     return true;
   });
+  // Keep slow "thinking"/reasoning models out of simple non-reasoning tasks (edit/command/read/
+  // search/…) — they deliberate for many tokens with no coding benefit. Reserve them for reasoning
+  // tasks. Fall back to including them only if nothing else qualifies.
+  if (TASK_SKILL[taskType] !== "reasoning") {
+    const fast = eligible.filter((m) => !isReasoningModel(m.id));
+    if (fast.length) return fast;
+  }
+  return eligible;
 }
 
 /**

@@ -64,6 +64,17 @@ export const TASK_SKILL: Record<TaskType, Skill> = {
   chat: "speed",
 };
 
+/**
+ * "Reasoning-only" models (o-series, DeepSeek-R1, *-thinking, QwQ, Magistral, gpt-5-thinking).
+ * They spend many tokens deliberating before answering — great for hard reasoning (plan / review /
+ * reason / verify), but slow and no better at coding/retrieval, so they should NOT be routed to
+ * simple edit / command / read / search tasks. The router uses this to keep them out of
+ * non-reasoning task candidate sets (unless nothing else qualifies).
+ */
+export function isReasoningModel(id: string): boolean {
+  return /(^|[/:_-])o[1-4]([-_.]|$)|thinking|qwq|reasoner|deepseek.*r1|[-_]r1([-_.:]|$)|magistral/i.test(id);
+}
+
 const TIER_BASE: Record<Tier, number> = { cheap: 1.0, standard: 1.4, frontier: 1.8 };
 
 /** Family bonus for a skill (1.0 = no notable strength, >1 = strong). */
