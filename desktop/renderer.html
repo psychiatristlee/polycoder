@@ -586,6 +586,50 @@ function mdToHtml(md){
   }
   return out.join("\n");
 }
+// LaTeX → HTML for the .tex preview. Not a full TeX engine: it strips the preamble,
+// converts sectioning / text formatting / lists, and rewrites math environments
+// (equation, align, gather, \[ \]) into $$…$$ so KaTeX can render them. Inline $…$
+// is left intact for KaTeX auto-render. amsmath align → KaTeX `aligned`.
+function texToHtml(src){
+  let s=src.replace(/\r/g,"");
+  s=s.replace(/(^|[^\\])%.*$/gm,"$1");                         // drop comments (keep \%)
+  const title=((s.match(/\\title\{([^}]*)\}/)||[])[1]||"").trim();
+  const author=((s.match(/\\author\{([^}]*)\}/)||[])[1]||"").trim();
+  let b=s; const bi=b.indexOf("\\begin{document}");
+  if(bi>=0) b=b.slice(bi+"\\begin{document}".length);
+  b=b.replace(/\\end\{document\}[\s\S]*$/,"").replace(/\\maketitle/g,"");
+  // math environments → display math (do before escaping; KaTeX reads textContent so & survives)
+  b=b.replace(/\\begin\{(equation|displaymath)\*?\}([\s\S]*?)\\end\{\1\*?\}/g,(m,e,x)=>"\n\n$$"+x.trim()+"$$\n\n")
+     .replace(/\\begin\{(align|alignat|flalign)\*?\}([\s\S]*?)\\end\{\1\*?\}/g,(m,e,x)=>"\n\n$$\\begin{aligned}"+x.trim()+"\\end{aligned}$$\n\n")
+     .replace(/\\begin\{gather\*?\}([\s\S]*?)\\end\{gather\*?\}/g,(m,x)=>"\n\n$$\\begin{gathered}"+x.trim()+"\\end{gathered}$$\n\n")
+     .replace(/\\\[([\s\S]*?)\\\]/g,(m,x)=>"\n\n$$"+x.trim()+"$$\n\n");
+  // mark lists with sentinels that survive escaping
+  b=b.replace(/\\begin\{itemize\}([\s\S]*?)\\end\{itemize\}/g,(m,x)=>"\n\nUL"+x+"E\n\n")
+     .replace(/\\begin\{enumerate\}([\s\S]*?)\\end\{enumerate\}/g,(m,x)=>"\n\nOL"+x+"E\n\n");
+  b=esc(b);
+  const inl=(t)=>t
+    .replace(/\\textbf\{([^}]*)\}/g,"<strong>$1</strong>")
+    .replace(/\\(?:textit|emph)\{([^}]*)\}/g,"<em>$1</em>")
+    .replace(/\\texttt\{([^}]*)\}/g,"<code>$1</code>")
+    .replace(/\\underline\{([^}]*)\}/g,"<u>$1</u>")
+    .replace(/\\\\(?!\])/g,"<br>")
+    .replace(/\\(?:noindent|centering|par)\b/g,"");
+  const out=[];
+  if(title) out.push("<h1>"+inl(esc(title))+"</h1>");
+  if(author) out.push('<p style="color:#8a7d6e;margin-top:-.4em">'+inl(esc(author))+"</p>");
+  for(let blk of b.split(/\n\s*\n/)){ blk=blk.trim(); if(!blk) continue;
+    if(blk.startsWith("")){ const ol=blk[1]==="O"; const inner=blk.replace(/(?:UL|OL|E)/g,"");
+      const items=inner.split(/\\item\b/).map(x=>x.trim()).filter(Boolean).map(x=>"<li>"+inl(x.replace(/\s*\n\s*/g," "))+"</li>").join("");
+      out.push((ol?"<ol>":"<ul>")+items+(ol?"</ol>":"</ul>")); continue; }
+    let m;
+    if(m=blk.match(/^\\section\*?\{([^}]*)\}([\s\S]*)/)){ out.push("<h2>"+inl(m[1])+"</h2>"); blk=m[2].trim(); if(!blk) continue; }
+    else if(m=blk.match(/^\\subsection\*?\{([^}]*)\}([\s\S]*)/)){ out.push("<h3>"+inl(m[1])+"</h3>"); blk=m[2].trim(); if(!blk) continue; }
+    else if(m=blk.match(/^\\subsubsection\*?\{([^}]*)\}([\s\S]*)/)){ out.push("<h4>"+inl(m[1])+"</h4>"); blk=m[2].trim(); if(!blk) continue; }
+    if(/^\$\$[\s\S]*\$\$$/.test(blk)) out.push(blk);              // display math: leave for KaTeX
+    else out.push("<p>"+inl(blk.replace(/\s*\n\s*/g," "))+"</p>");
+  }
+  return out.join("\n");
+}
 function gridTable(rows){ let t='<table class="grid">'; for(const r of rows){ t+="<tr>"+(r||[]).map(c=>"<td>"+esc(String(c))+"</td>").join("")+"</tr>"; } return t+"</table>"; }
 function parseCsv(text){ return text.replace(/\r/g,"").split("\n").filter(l=>l.length).map(l=>{const out=[];let cur="",q=false;for(let i=0;i<l.length;i++){const c=l[i];if(q){if(c==='"'&&l[i+1]==='"'){cur+='"';i++;}else if(c==='"')q=false;else cur+=c;}else{if(c==='"')q=true;else if(c===","){out.push(cur);cur="";}else cur+=c;}}out.push(cur);return out;}); }
 
@@ -604,7 +648,7 @@ async function openPreview(path){
     if(!r.ok){ body.innerHTML='<pre class="raw">'+esc(r.error||"읽기 실패")+'</pre>'; return; }
     if(ext==="svg"){ body.innerHTML='<div class="svgwrap">'+r.content+'</div>'; return; }
     if(ext==="md"||ext==="markdown"){ body.innerHTML='<div class="md">'+mdToHtml(r.content)+'</div>'; renderMath(body.firstChild); return; }
-    if(ext==="tex"){ body.innerHTML='<div class="md">'+mdToHtml(r.content)+'</div>'; renderMath(body.firstChild); return; }
+    if(ext==="tex"){ body.innerHTML='<div class="md">'+texToHtml(r.content)+'</div>'; renderMath(body.firstChild); return; }
     if(ext==="csv"){ body.innerHTML='<div class="gridwrap">'+gridTable(parseCsv(r.content))+'</div>'; return; }
     if(ext==="json"){ let pretty=r.content; try{pretty=JSON.stringify(JSON.parse(r.content),null,2);}catch{} body.innerHTML='<pre class="raw">'+esc(pretty)+'</pre>'; return; }
     body.innerHTML='<pre class="raw">'+esc(r.content)+'</pre>';
