@@ -298,6 +298,10 @@
   .pvbody .md pre{background:var(--code);padding:13px 15px;border-radius:9px;overflow:auto;border:1px solid var(--border)}
   .pvbody .md code{background:var(--code);padding:1px 6px;border-radius:5px;font-family:ui-monospace,Menlo,monospace;font-size:13px}
   .pvbody .md pre code{background:none;padding:0}
+  .pvbody .md pre .hc{color:#8a9a7a;font-style:italic} /* comment */
+  .pvbody .md pre .hs{color:#a9863f}                    /* string */
+  .pvbody .md pre .hn{color:#5e6b88}                    /* number */
+  .pvbody .md pre .hk{color:#6e2436;font-weight:600}    /* keyword */
   .pvbody .md blockquote{border-left:3px solid var(--accent);padding:3px 0 3px 14px;color:#6a6258;margin:1em 0}
   .pvbody .md li.task{list-style:none;margin-left:-1.4em}
   .pvbody .md li.task input{margin-right:7px;vertical-align:-1px}
@@ -585,7 +589,7 @@ function mdToHtml(md){
     .replace(/\*([^*]+)\*/g,"<em>$1</em>")
     .replace(/(^|[^_])_([^_]+)_(?!_)/g,"$1<em>$2</em>");
   while(i<lines.length){ let l=lines[i];
-    if(/^```/.test(l)){const buf=[];i++;while(i<lines.length&&!/^```/.test(lines[i])){buf.push(lines[i]);i++;}i++;out.push("<pre><code>"+esc(buf.join("\n"))+"</code></pre>");continue;}
+    if(/^```/.test(l)){const fence=l.match(/^```+\s*([\w-]*)/);const lang=fence?fence[1]:"";const buf=[];i++;while(i<lines.length&&!/^```/.test(lines[i])){buf.push(lines[i]);i++;}i++;out.push('<pre><code class="lang-'+esc(lang)+'">'+highlightCode(buf.join("\n"),lang)+"</code></pre>");continue;}
     let h=l.match(/^(#{1,6})\s+(.*)/); if(h){out.push("<h"+h[1].length+">"+inline(h[2])+"</h"+h[1].length+">");i++;continue;}
     if(/^\s*([-*+]|\d+\.)\s+/.test(l)){ const items=[];
       while(i<lines.length&&/^\s*([-*+]|\d+\.)\s+/.test(lines[i])){ const ln=lines[i];
@@ -604,6 +608,26 @@ function mdToHtml(md){
   return out.join("\n");
 }
 // Build nested <ul>/<ol> from flat items (indent-based), with GitHub-style task checkboxes.
+// Lightweight, dependency-free syntax highlighter for fenced code blocks. Single-pass
+// tokenizer (comments / strings / numbers / keywords) — language-agnostic, good enough
+// to read like Claude's highlighted code without bundling highlight.js.
+const HL_KW=/^(const|let|var|function|return|if|else|elif|for|while|do|switch|case|break|continue|class|new|import|from|export|default|async|await|try|catch|finally|throw|typeof|instanceof|in|of|this|super|extends|implements|yield|delete|void|null|true|false|undefined|def|lambda|None|True|False|self|pass|with|as|not|and|or|is|print|public|private|protected|static|final|int|float|double|char|bool|boolean|string|struct|enum|interface|type|fn|mut|pub|use|impl|match|where|package|func|range|defer|go|chan|select|nil|then|end|local|require|module|namespace|using|val|var|when|object|fun)$/;
+function highlightCode(src,lang){
+  const hash=/^(py|python|sh|bash|zsh|shell|rb|ruby|ya?ml|toml|r|perl|pl|makefile|make|dockerfile|ini|conf|cfg)$/i.test(lang||"");
+  const cmt = hash ? "#[^\\n]*|//[^\\n]*|/\\*[\\s\\S]*?\\*/" : "//[^\\n]*|/\\*[\\s\\S]*?\\*/";
+  const re=new RegExp("("+cmt+")|(\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*'|`(?:\\\\.|[^`\\\\])*`)|(\\b\\d[\\d_.eExXa-fA-F]*\\b)|([A-Za-z_$][\\w$]*)","g");
+  let out="",last=0,m;
+  while(m=re.exec(src)){
+    out+=esc(src.slice(last,m.index));
+    if(m[1]) out+='<span class="hc">'+esc(m[1])+'</span>';
+    else if(m[2]) out+='<span class="hs">'+esc(m[2])+'</span>';
+    else if(m[3]) out+='<span class="hn">'+esc(m[3])+'</span>';
+    else if(m[4]) out+= HL_KW.test(m[4]) ? '<span class="hk">'+esc(m[4])+'</span>' : esc(m[4]);
+    last=re.lastIndex;
+  }
+  out+=esc(src.slice(last));
+  return out;
+}
 function buildNestedList(items,inline){ let html=""; const stack=[];
   const closeTo=(ind)=>{ while(stack.length && stack[stack.length-1].indent>ind){ html+=stack.pop().ordered?"</ol>":"</ul>"; } };
   for(const it of items){
