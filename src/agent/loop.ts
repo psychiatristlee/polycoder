@@ -28,7 +28,7 @@ import {
   type UsageEntry,
   type StepRunRow,
 } from "../usage/db.js";
-import { TASK_SKILL } from "../models/strengths.js";
+import { TASK_SKILL, taskStrength } from "../models/strengths.js";
 
 export type AgentEvent =
   | { type: "plan"; plan: Plan; planModel: string }
@@ -404,23 +404,21 @@ async function runStep(
   skillContext?: string
 ): Promise<StepResult> {
   const est = { promptTokens: step.estPromptTokens, completionTokens: step.estCompletionTokens };
-  // Full fallback chain: if a model fails (e.g. a local model that can't load, or runs out
-  // of memory), automatically move on to the next-best AVAILABLE model — no reconfig, no
-  // API key needed. The explore pick (epsilon-greedy) goes first when it fires.
-  const explore = route(step.type, deps.models, policy, est);
-  let chain = rankedCandidates(step.type, deps.models, policy, est);
-  if (explore?.explored && explore.model) chain = [explore.model, ...chain.filter((m) => m.id !== explore.model.id)];
-  if (!chain.length) {
+  const eligible = rankedCandidates(step.type, deps.models, policy, est); // best-value first, never empty
+  if (!eligible.length) {
     emit({ type: "error", message: `No capable model for step ${step.id} (${step.type}).` });
     return { summary: "(no model)", success: false };
   }
-  const MAX_MODELS = Math.min(chain.length, 4);
+  const explore = route(step.type, deps.models, policy, est);
+  const strengthOf = (m: ModelInfo): number => taskStrength(m, step.type);
+  const tried = new Set<string>();
+  const localOnly = deps.models.every((m) => m.id.startsWith("local/"));
+  let next: ModelInfo | undefined = explore?.explored && explore.model ? explore.model : eligible[0];
 
   let loop: LoopResult | null = null;
-  let model: ModelInfo = chain[0];
-  for (let i = 0; i < MAX_MODELS; i++) {
-    model = chain[i];
-    if (i > 0) emit({ type: "error", message: `↻ 다른 모델로 전환: ${model.id} (이전 모델 실패)` });
+  for (let i = 0; i < 6 && next; i++) {
+    const model: ModelInfo = next;
+    tried.add(model.id);
     emit({ type: "step-start", step, model, estCostUsd: 0, explored: i === 0 && !!explore?.explored });
     const messages: ChatMessage[] = [
       { role: "system", content: stepSystemPrompt(goal, step, priorSummaries, model.capabilities.tools, skillContext) },
@@ -444,6 +442,36 @@ async function runStep(
       durationMs: loop.durationMs,
     });
     if (loop.success || loop.finishedBy !== "error") break; // only a hard model error triggers a switch
+
+    // Pick the next model by WHY it failed. Default: escalate UP to the strongest untried
+    // model. Only when the model couldn't LOAD (out of memory) does a bigger model make no
+    // sense → step down to the largest one that still fits.
+    const pool: ModelInfo[] = eligible.filter((m) => !tried.has(m.id));
+    const msg: string = (loop.errorMessage || "").toLowerCase();
+    const resource = /memory|vram|\bram\b|oom|cudamalloc|error loading model|failed to load|llama_model_loader|llama-server|llama runner|terminated/.test(msg);
+    let pick: ModelInfo | undefined;
+    if (resource) {
+      const smaller = pool.filter((m) => strengthOf(m) < strengthOf(model)).sort((a, b) => strengthOf(b) - strengthOf(a));
+      pick = smaller[0];
+      if (pick) emit({ type: "error", message: `↻ 메모리/로드 실패 → 더 작은 모델로 전환: ${pick.id}` });
+    } else {
+      const stronger = pool.filter((m) => strengthOf(m) > strengthOf(model)).sort((a, b) => strengthOf(a) - strengthOf(b));
+      pick = stronger[0] || pool.sort((a, b) => strengthOf(b) - strengthOf(a))[0];
+      if (pick) emit({ type: "error", message: `↻ 실패 → 더 ${stronger.length ? "강한" : "다른"} 모델로 전환: ${pick.id}` });
+    }
+    next = pick; // undefined → loop ends (no models left to try)
+  }
+
+  // Exhausted every available model and still failing → final, actionable error. With only
+  // local models (no key, by design), point the user at a remote LLM (the subagent: a bigger
+  // model on another machine) instead of silently giving up.
+  if (loop && !loop.success && loop.finishedBy === "error") {
+    emit({
+      type: "error",
+      message: localOnly
+        ? "⛔ 설치된 로컬 모델(가장 강한 것까지)로 이 단계를 끝내지 못했습니다. 더 큰 원격 LLM을 연결하세요 — 다른 GPU 머신에서 `poly subagent serve` 후 이 컴퓨터에서 `poly subagent link` (또는 OpenRouter 키)."
+        : "⛔ 사용 가능한 모델들로 이 단계를 끝내지 못했습니다. 더 강한 모델(상위 티어/프론티어)을 허용하거나 원격 LLM을 연결하세요.",
+    });
   }
 
   const summary = loop!.summary || "(no summary)";
@@ -522,6 +550,7 @@ interface LoopResult {
   completion: number;
   cost: number;
   durationMs: number;
+  errorMessage?: string; // raw error (when finishedBy === "error") — used to pick the next model
 }
 
 /** The shared tool-use loop (used by steps and the fix pass). */
@@ -544,6 +573,7 @@ async function runToolLoop(
     iterations = 0;
   let summary = "";
   let finishedBy: StepRunRow["finishedBy"] = "max-iters";
+  let errorMessage: string | undefined;
   let healUsed = 0;
   const MAX_HEAL = 3;
 
@@ -641,12 +671,14 @@ async function runToolLoop(
     }
   } catch (err: any) {
     finishedBy = "error";
-    const d = diagnose(err?.message ?? String(err), model.id);
+    const raw: string = err?.message ?? String(err);
+    errorMessage = raw;
+    const d = diagnose(raw, model.id);
     emit({
       type: "error",
       message: d
         ? `${taskTypeForLog} 실패 — 원인: ${d.cause} · 해결: ${d.fix}`
-        : `${taskTypeForLog} failed: ${err?.message ?? err}`,
+        : `${taskTypeForLog} failed: ${raw}`,
     });
   }
 
@@ -660,6 +692,7 @@ async function runToolLoop(
     completion,
     cost,
     durationMs: Date.now() - start,
+    errorMessage,
   };
 }
 
