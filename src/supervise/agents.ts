@@ -124,6 +124,7 @@ export function runAgentProcess(
       shell: useShell,
       stdio: ["pipe", "pipe", "pipe"],
       detached: !isWin, // POSIX: own process group so we can kill the whole tree
+      windowsHide: true, // don't pop up a console window
       env: { ...process.env, CI: "1", GIT_PAGER: "cat", PAGER: "cat", npm_config_yes: "true" },
     });
     let out = "";

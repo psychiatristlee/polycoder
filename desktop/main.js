@@ -28,9 +28,9 @@ function winQuote(s) {
 function spawnPoly(args, opts = {}) {
   if (IS_WIN) {
     const line = [POLY, ...args].map(winQuote).join(" ");
-    return spawn(line, { shell: true, env: process.env, ...opts });
+    return spawn(line, { shell: true, env: process.env, windowsHide: true, ...opts });
   }
-  return spawn(POLY, args, { env: process.env, detached: !!opts.detached, ...opts });
+  return spawn(POLY, args, { env: process.env, detached: !!opts.detached, windowsHide: true, ...opts });
 }
 function killChildTree(child) {
   if (!child || child.killed) return;

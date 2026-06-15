@@ -2,7 +2,8 @@
 // possible, REMEDIATE automatically (start the local server, pull a missing model, relocate
 // Ollama's model store off a non-ASCII path) and retry — so a run drives to the goal instead
 // of dumping a raw 500 on the user.
-import { ensureServer, ollamaCmd, run, fixWindowsModelsPath, restartOllama } from "../setup/localllm.js";
+import { ensureServer, ollamaCmd, run, fixWindowsModelsPath, restartOllama, migrateOllamaModelsToAscii } from "../setup/localllm.js";
+import { execSync } from "node:child_process";
 
 export interface Diagnosis {
   cause: string; // why it failed (human, Korean-facing)
@@ -59,9 +60,18 @@ export async function remediate(d: Diagnosis, baseUrl = "http://localhost:11434"
         fixWindowsModelsPath();
         return await run(ollamaCmd(), ["pull", d.model]);
       case "fix-ollama-path": {
-        fixWindowsModelsPath(); // relocate model store to an ASCII path + persist
-        await restartOllama(baseUrl); // restart so the server uses the new path
-        if (d.model) await run(ollamaCmd(), ["pull", d.model]); // re-fetch into the ASCII path
+        // Stop Ollama so model files aren't locked, MOVE them to an ASCII path (instant,
+        // no re-download), point OLLAMA_MODELS there, and restart. Only re-pull if nothing
+        // could be migrated (e.g. files were locked).
+        try {
+          execSync(process.platform === "win32" ? "taskkill /f /im ollama.exe" : "pkill ollama", { stdio: "ignore", windowsHide: true });
+        } catch {
+          /* may not be running */
+        }
+        const mig = migrateOllamaModelsToAscii();
+        fixWindowsModelsPath(); // setx OLLAMA_MODELS + process env
+        await restartOllama(baseUrl);
+        if (d.model && (!mig || mig.moved === 0)) await run(ollamaCmd(), ["pull", d.model]);
         return true;
       }
       case "backoff":

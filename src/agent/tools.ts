@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
 import type { ToolSchema, ToolCall } from "../providers/types.js";
 import { extractJson } from "../planner/planner.js";
 import { searchWeb } from "../search/providers.js";
@@ -208,13 +208,15 @@ function runCommandStreaming(command: string, ctx: ToolContext): Promise<string>
   const idleMs = commandIdleMs();
   const maxMs = commandMaxMs();
   const isServer = SERVER_CMD.test(command);
+  const isWin = process.platform === "win32";
   return new Promise((resolve) => {
     const child = spawn(command, {
       cwd: ctx.cwd,
       env: { ...scrubbedEnv(), ...NONINTERACTIVE_ENV },
       shell: true,
       stdio: ["ignore", "pipe", "pipe"], // stdin = EOF, so prompts don't block
-      detached: true, // own process group → we can kill the whole tree
+      detached: !isWin, // POSIX: own process group → kill the whole tree. (win: taskkill /T)
+      windowsHide: true, // don't pop up a console window for every command
     });
     let out = "";
     let truncated = false;
@@ -228,6 +230,18 @@ function runCommandStreaming(command: string, ctx: ToolContext): Promise<string>
     };
     const killTree = (reason: string) => {
       killReason = reason;
+      if (isWin) {
+        try {
+          execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: "ignore", windowsHide: true });
+        } catch {
+          try {
+            child.kill();
+          } catch {
+            /* gone */
+          }
+        }
+        return;
+      }
       try {
         process.kill(-(child.pid as number), "SIGKILL");
       } catch {

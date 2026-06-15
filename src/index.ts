@@ -33,7 +33,8 @@ import type { RoutingObjective, RoutingPolicy } from "./router/policy.js";
 import { blendedPrice } from "./router/policy.js";
 import { table, usd, perMTok, tierColor, c } from "./util/format.js";
 import { runSetup, runUpdate } from "./setup/commands.js";
-import { LOCAL_MODEL_CATALOG, installedModels, totalRamGb, freeDiskGb, ensureServer, ollamaInstalled, ollamaServerUp, ollamaInstallPlan, run as runCmd, ollamaCmd, fixWindowsModelsPath } from "./setup/localllm.js";
+import { LOCAL_MODEL_CATALOG, installedModels, totalRamGb, freeDiskGb, ensureServer, ollamaInstalled, ollamaServerUp, ollamaInstallPlan, run as runCmd, ollamaCmd, fixWindowsModelsPath, migrateOllamaModelsToAscii, restartOllama } from "./setup/localllm.js";
+import { execSync as execSyncCmd } from "node:child_process";
 import { registerSubagentCommands } from "./subagent/commands.js";
 import App from "./tui/App.tsx";
 
@@ -1102,6 +1103,30 @@ localCmd
   .action(async (id: string) => {
     const ok = await runCmd(ollamaCmd(), ["rm", id]);
     console.log(ok ? c.green(`✓ removed ${id}`) : c.red(`failed to remove ${id}`));
+  });
+localCmd
+  .command("fix")
+  .description("Windows 한글 사용자명 경로 문제 해결: 모델을 ASCII 경로로 이동 + Ollama 재시작")
+  .action(async () => {
+    if (process.platform !== "win32") {
+      console.log(c.yellow("이 수정은 Windows 전용입니다 (한글/비ASCII 사용자명 경로 문제)."));
+      return;
+    }
+    console.log(c.cyan("Ollama 중지 후 모델을 ASCII 경로로 이동 중… (재다운로드 없음)"));
+    try {
+      execSyncCmd("taskkill /f /im ollama.exe", { stdio: "ignore", windowsHide: true });
+    } catch {
+      /* may not be running */
+    }
+    const mig = migrateOllamaModelsToAscii();
+    const fix = fixWindowsModelsPath();
+    await restartOllama();
+    if (!fix) {
+      console.log(c.green("ASCII 경로라 수정할 게 없습니다."));
+      return;
+    }
+    console.log(c.green(`✓ 모델 ${mig?.moved ?? 0}개 이동 → ${fix.dir}`));
+    console.log(c.dim("  OLLAMA_MODELS 설정 + Ollama 재시작 완료. 이제 모델 로드 오류가 해결됩니다."));
   });
 
 // ---- subagent (remote GPU worker) ------------------------------------------

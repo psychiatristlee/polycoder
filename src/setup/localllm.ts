@@ -214,6 +214,45 @@ export function fixWindowsModelsPath(): { dir: string; restartNeeded: boolean } 
   return { dir, restartNeeded: !already };
 }
 
+/**
+ * Move already-downloaded models off a non-ASCII path to the ASCII OLLAMA_MODELS dir, so we
+ * don't have to re-download multi-GB models. Same-drive rename is instant. Returns whether
+ * anything moved (best-effort; the caller should stop Ollama first so files aren't locked).
+ */
+export function migrateOllamaModelsToAscii(): { moved: number; dir: string } | null {
+  if (process.platform !== "win32") return null;
+  const home = process.env.USERPROFILE || os.homedir();
+  if (/^[\x00-\x7F]*$/.test(home)) return null; // ASCII home → nothing to migrate
+  const dest = path.join(process.env.PUBLIC || "C:\\Users\\Public", ".ollama", "models");
+  const src = path.join(home, ".ollama", "models");
+  let moved = 0;
+  try {
+    if (!fs.existsSync(src)) return { moved, dir: dest };
+    fs.mkdirSync(dest, { recursive: true });
+    const merge = (s: string, d: string) => {
+      for (const e of fs.readdirSync(s)) {
+        const sp = path.join(s, e);
+        const dp = path.join(d, e);
+        if (fs.existsSync(dp) && fs.statSync(sp).isDirectory()) {
+          fs.mkdirSync(dp, { recursive: true });
+          merge(sp, dp);
+        } else if (!fs.existsSync(dp)) {
+          try {
+            fs.renameSync(sp, dp);
+            moved++;
+          } catch {
+            /* locked or cross-device — leave it */
+          }
+        }
+      }
+    };
+    merge(src, dest);
+  } catch {
+    /* best-effort */
+  }
+  return { moved, dir: dest };
+}
+
 /** Best-effort restart of the Ollama server so it picks up new env (e.g. OLLAMA_MODELS). */
 export async function restartOllama(baseUrl = "http://localhost:11434"): Promise<boolean> {
   try {

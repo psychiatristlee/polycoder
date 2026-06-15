@@ -711,8 +711,10 @@ function stepSystemPrompt(
 - SELF-UNBLOCK: if you hit a blocker (missing library, tool, command, or info), do NOT give up — install it (run_command), write a small helper script/tool, or search for the fix, then use it to continue. Build whatever you need to finish the task.
 - ASK ONLY WHEN AMBIGUOUS: if there's a genuine fork you cannot resolve from context, call ask_user with 2-4 concrete options; otherwise proceed with sensible defaults.
 - COMMANDS MUST BE NON-INTERACTIVE: pass flags so scaffolders don't prompt (e.g. \`npx --yes create-next-app@latest <name> --ts --eslint --app --tailwind --use-npm --no-src-dir --no-import-alias --yes\`). A command that waits for input will be killed.
+- WORKING DIRECTORY IS FIXED: every run_command starts in the SAME --cwd; \`cd\` does NOT persist between commands and there is no cd tool. To act in a subfolder, chain it in ONE command: \`cd <dir> && <command>\` (Windows: \`cd /d <dir> && <command>\`). Likewise read_file/write_file/list_dir paths are relative to that fixed cwd.
+- SCAFFOLD IN PLACE: prefer creating the project in the CURRENT directory — \`create-next-app .\` when the cwd is empty — so later \`npm run build\`/edits land in the right place. If a subdir already contains the project, run all later commands as \`cd <dir> && …\`. Check with list_dir before scaffolding; if the project already exists, do NOT scaffold again (re-running create-next-app errors with "directory not empty").
 - NEVER run a dev server as a step: \`npm run dev\`/\`next dev\`/\`vite\`/\`serve\` never exit. To VERIFY the app, run \`npm run build\` (and \`npm test\` if present), not the dev server.
-- ONE project only: create the scaffold once; then cd/edit inside THAT directory. Don't re-scaffold or make a second project. Respect its structure — App Router uses \`app/\`, Pages Router uses \`pages/\`; never mix the two.
+- ONE project only, in ONE directory. Respect its router — App Router uses \`app/\`, Pages Router uses \`pages/\`; never mix the two (don't add \`pages/\` files to an \`app/\` project).
 - Call \`finish\` with a one-line summary when the objective is truly met.
 If you cannot call tools natively, reply with ONLY one JSON object per turn, no prose: {"name":"<tool>","arguments":{...}}`
     : `\nReturn a concise result for this step.`;
