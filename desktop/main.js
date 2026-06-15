@@ -250,9 +250,23 @@ ipcMain.handle("set-local-url", (_e, url) =>
     child.on("error", () => resolve(false));
   })
 );
+function dialogParent() {
+  const w = win && !win.isDestroyed() ? win : BrowserWindow.getFocusedWindow();
+  try {
+    if (w && !w.isDestroyed()) w.focus();
+  } catch {
+    /* ignore */
+  }
+  return w && !w.isDestroyed() ? w : undefined;
+}
 ipcMain.handle("pick-folder", async () => {
-  const r = await dialog.showOpenDialog(win, { properties: ["openDirectory", "createDirectory"] });
-  return r.canceled ? null : r.filePaths[0];
+  try {
+    const r = await dialog.showOpenDialog(dialogParent(), { properties: ["openDirectory", "createDirectory"] });
+    return r.canceled ? null : r.filePaths[0];
+  } catch (e) {
+    console.error("pick-folder failed:", e);
+    return { error: String((e && e.message) || e) };
+  }
 });
 ipcMain.handle("save-key", (_e, key) => {
   try {
@@ -300,7 +314,7 @@ ipcMain.handle("capture", async (_e, file) => {
 });
 // Attachments: file picker → [{path,name,kind,thumb}], where thumb is a small data URL for images.
 ipcMain.handle("pick-attachments", async () => {
-  const r = await dialog.showOpenDialog(win, {
+  const r = await dialog.showOpenDialog(dialogParent(), {
     properties: ["openFile", "multiSelections"],
     filters: [
       { name: "All supported", extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "svg", "mp4", "mov", "m4v", "avi", "mkv", "webm", "pdf", "docx", "xlsx", "pptx", "txt", "md", "csv", "json"] },

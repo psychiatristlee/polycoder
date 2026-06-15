@@ -478,7 +478,11 @@ function setCwd(p){ cwd=p; knownFiles=null;
   const sp=$("sup-proj"); if(sp) sp.textContent=p||"작업 폴더를 먼저 여세요";
   refreshFiles();
 }
-$("folderbox").onclick=async()=>{ const p=await window.poly.pickFolder(); if(p)setCwd(p); };
+async function pickFolder(){ const p=await window.poly.pickFolder();
+  if(typeof p==="string"&&p){ setCwd(p); }
+  else if(p&&p.error){ showView("chat"); assistantStart(); status("폴더 열기 실패: "+p.error,"err"); }
+}
+$("folderbox").onclick=pickFolder;
 
 /* ---- markdown ---- */
 function mdToHtml(md){
@@ -525,7 +529,7 @@ $("pvclose").onclick=()=>{ $("preview").hidden=true; };
 
 /* ---- onboarding + run ---- */
 $("savekey").onclick=async()=>{const k=$("key").value.trim();if(!k)return;await window.poly.saveKey(k);$("key").value="";assistantStart();status("✓ OpenRouter 키 저장됨","ok");refreshStatus();};
-$("pick").onclick=async()=>{const p=await window.poly.pickFolder();if(p)setCwd(p);};
+$("pick").onclick=pickFolder;
 
 const ta=$("goal");
 ta.addEventListener("input",()=>{ta.style.height="auto";ta.style.height=Math.min(ta.scrollHeight,170)+"px";});

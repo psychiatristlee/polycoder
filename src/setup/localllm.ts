@@ -342,19 +342,17 @@ export function ollamaInstallPlan(): InstallInstructions {
 /** Start the Ollama background service if it isn't already up (best-effort). */
 export async function ensureServer(baseUrl = "http://localhost:11434"): Promise<boolean> {
   if (await ollamaServerUp(baseUrl)) return true;
-  if (process.platform === "darwin" && which("brew")) {
-    await run("brew", ["services", "start", "ollama"]);
-  } else {
-    // Detached `ollama serve` for linux/win or non-brew setups.
-    try {
-      const child = spawn("ollama", ["serve"], { stdio: "ignore", detached: true });
-      child.unref();
-    } catch {
-      /* ignore */
-    }
+  // `ollama serve` detached is the reliable way to start it on every platform. We avoid
+  // `brew services start` — its launchctl bootstrap fails (error 5) when already bootstrapped
+  // and dumps a scary error, and we don't need persistence here.
+  try {
+    const child = spawn(ollamaCmd(), ["serve"], { stdio: "ignore", detached: true, windowsHide: true });
+    child.unref();
+  } catch {
+    /* ignore */
   }
-  // Give it a moment, then re-check (poll up to ~5s).
-  for (let i = 0; i < 10; i++) {
+  // Give it a moment, then re-check (poll up to ~7s; cold start can be slow).
+  for (let i = 0; i < 14; i++) {
     if (await ollamaServerUp(baseUrl)) return true;
     await delay(500);
   }
