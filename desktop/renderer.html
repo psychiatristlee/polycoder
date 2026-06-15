@@ -42,7 +42,7 @@
   .convhead{display:flex;justify-content:space-between;align-items:center}
   .newconv{border:0;background:transparent;color:var(--accent);font-size:17px;line-height:1;cursor:pointer;padding:0 5px;border-radius:6px}
   .newconv:hover{background:var(--panel2)}
-  .convs{max-height:26vh;overflow:auto;margin-bottom:2px}
+  .convs{margin-bottom:2px}
   .conv{display:flex;align-items:center;gap:6px;font-size:12.5px;color:#5e594d;padding:6px 10px;border-radius:8px;cursor:pointer;white-space:nowrap}
   .conv:hover{background:var(--panel2)}
   .conv.active{background:var(--bubble);color:var(--accent2);font-weight:600}
@@ -51,7 +51,17 @@
   .conv:hover .cx{opacity:1}
   .conv .cx:hover{background:var(--border2);color:var(--accent2)}
   .convempty{font-size:11.5px;color:var(--soft);padding:4px 10px}
-  .files{overflow:auto;flex:1;margin-top:1px}
+  .sidescroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;margin-top:2px}
+  .folders{margin-bottom:2px}
+  .folderitem{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#5e594d;padding:6px 10px;border-radius:8px;cursor:pointer;white-space:nowrap}
+  .folderitem:hover{background:var(--panel2)}
+  .folderitem.active{background:var(--bubble);color:var(--accent2);font-weight:600}
+  .folderitem .fi2{font-size:12px;flex-shrink:0;opacity:.85}
+  .folderitem .ft{flex:1;overflow:hidden;text-overflow:ellipsis}
+  .folderitem .fx{border:0;background:transparent;color:var(--soft);font-size:13px;cursor:pointer;opacity:0;padding:0 3px;border-radius:5px}
+  .folderitem:hover .fx{opacity:1}
+  .folderitem .fx:hover{background:var(--border2);color:var(--accent2)}
+  .files{margin-top:1px}
   .file{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#5e594d;padding:4px 10px;border-radius:7px;cursor:pointer;white-space:nowrap;overflow:hidden}
   .file:hover{background:var(--panel2)}
   .file .fi{font-size:12px;width:15px;text-align:center;flex-shrink:0;opacity:.85}
@@ -70,14 +80,14 @@
   .chatpane[hidden]{display:none}
   .topbar{height:52px;display:flex;align-items:center;gap:10px;padding:0 24px;border-bottom:1px solid var(--border);color:var(--fg);font-size:14px;font-weight:600}
   .topbar .sub{color:var(--soft);font-weight:400;font-size:12px}
-  #chat{flex:1;overflow:auto;padding:28px 0}
+  #chat{flex:1;overflow-y:auto;overflow-x:hidden;padding:28px 0}
   .col{max-width:720px;margin:0 auto;padding:0 28px}
   .msg{margin:20px auto;max-width:720px;padding:0 28px;display:flex;gap:13px}
   .msg .av{width:27px;height:27px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font:600 13px Georgia,serif;margin-top:2px;background:var(--accent);color:#fff}
   .msg .body{flex:1;min-width:0;padding-top:2px}
   .msg.user{justify-content:flex-end}
-  .msg.user .bubble{background:var(--bubble);border:1px solid var(--border);padding:11px 16px;border-radius:17px 17px 6px 17px;max-width:80%;white-space:pre-wrap;box-shadow:var(--shadow)}
-  .msg.assistant .body p{margin:0 0 9px;white-space:pre-wrap}
+  .msg.user .bubble{background:var(--bubble);border:1px solid var(--border);padding:11px 16px;border-radius:17px 17px 6px 17px;max-width:80%;white-space:pre-wrap;overflow-wrap:anywhere;box-shadow:var(--shadow)}
+  .msg.assistant .body p{margin:0 0 9px;white-space:pre-wrap;overflow-wrap:anywhere}
   .status{font-size:13px;color:var(--mut);display:flex;align-items:center;gap:8px;margin:4px 0}
   .status .dot{width:6px;height:6px;border-radius:50%;background:var(--gold);flex-shrink:0}
   .tool{font:12px/1.5 ui-monospace,Menlo,monospace;color:#6a6258;background:var(--code);border:1px solid var(--border);border-radius:9px;padding:7px 11px;margin:5px 0;white-space:pre-wrap;word-break:break-word}
@@ -134,6 +144,22 @@
   .stopbtn:hover{border-color:var(--accent);background:#fff}
   .stopbtn[hidden]{display:none}
   .hint{max-width:720px;margin:8px auto 0;font-size:11px;color:var(--soft);text-align:center}
+  /* supervision-in-chat: inline config bar + toggle + next-step card */
+  .supbar{max-width:720px;margin:0 auto 8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--card);border:1px solid var(--border2);border-radius:13px;padding:8px 14px;font-size:12.5px;color:var(--mut)}
+  .supbar[hidden]{display:none}
+  .supbar-t{font-weight:600;color:var(--accent2)}
+  .supbar select,.supbar input[type=number]{padding:5px 8px;border-radius:8px;border:1px solid var(--border2);background:var(--bg);color:var(--fg);font:inherit;font-size:12px;outline:none}
+  .supbar input[type=number]{width:52px;text-align:center}
+  .supbar .supck{display:flex;align-items:center;gap:5px;color:var(--fg);cursor:pointer}
+  .supbar .supck input[type=checkbox]{width:auto}
+  #suptoggle.active{border-color:var(--accent);background:var(--bubble);color:var(--accent2)}
+  .nextcard{margin:6px 0;background:linear-gradient(0deg,var(--bg),var(--bg)) padding-box,linear-gradient(90deg,var(--gold),var(--accent)) border-box;border:1px solid transparent;border-radius:10px;padding:10px 13px;line-height:1.55;font-size:13px;color:var(--fg)}
+  .nextcard b{color:var(--accent2);font-weight:700}
+  .supsum{font-size:13px;color:var(--fg);margin:4px 0;line-height:1.6}
+  .supbar2{display:flex;align-items:center;gap:8px;margin:6px 0}
+  .supbar2 .b{flex:1;height:8px;border-radius:6px;background:var(--panel2);overflow:hidden}
+  .supbar2 .b>i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),var(--accent))}
+  .supbar2 .pct{font-size:11.5px;color:var(--mut);min-width:36px;text-align:right;font-variant-numeric:tabular-nums}
 
   /* model manager */
   .modelpane{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
@@ -304,11 +330,14 @@
     </div>
     <button class="sbtn" id="navchat"><span class="ic">💬</span> 채팅</button>
     <button class="sbtn" id="navmodel"><span class="ic">🧠</span> 로컬 모델 (설치·관리)</button>
-    <button class="sbtn" id="navsup"><span class="ic">🔭</span> 슈퍼비전 모드</button>
-    <div class="seclabel convhead">대화 기록 <button class="newconv" id="newconv" title="새 대화 시작">＋</button></div>
-    <div class="convs" id="convs"></div>
-    <div class="seclabel">파일</div>
-    <div class="files" id="files"><div class="file" style="cursor:default">폴더를 선택하세요</div></div>
+    <div class="sidescroll">
+      <div class="seclabel">작업 폴더</div>
+      <div class="folders" id="folders"></div>
+      <div class="seclabel convhead">대화 기록 <button class="newconv" id="newconv" title="새 대화 시작">＋</button></div>
+      <div class="convs" id="convs"></div>
+      <div class="seclabel" id="fileslabel">파일</div>
+      <div class="files" id="files"><div class="file" style="cursor:default">폴더를 선택하세요</div></div>
+    </div>
     <div class="foot">
       <input type="password" id="key" placeholder="🔑 OpenRouter 키 (선택)" />
       <button class="sbtn savekey" id="savekey">키 저장</button>
@@ -326,52 +355,32 @@
       </div>
     </div>
     <div class="composer">
+      <!-- Supervision is a mode of the chat (not a separate tab): toggle 🔭, then send a goal. -->
+      <div class="supbar" id="supbar" hidden>
+        <span class="supbar-t">🔭 슈퍼비전 — 외부 코딩 에이전트(Claude Code·Codex)를 감독합니다</span>
+        <select id="sup-agent" title="감독할 워커">
+          <option value="claude">Claude Code</option>
+          <option value="codex">Codex CLI</option>
+          <option value="cmd">사용자 명령</option>
+        </select>
+        <input id="sup-cmd" placeholder='예: sh worker.sh  ({prompt} 치환)' hidden />
+        <label class="supck"><input type="checkbox" id="sup-auto" /> AUTO</label>
+        <span class="supck">최대 <input id="sup-max" type="number" value="5" min="1" max="50" />회</span>
+      </div>
       <div class="attachtray" id="attachtray" hidden></div>
       <div class="cwrap" id="cwrap">
         <button class="attachbtn" id="attach" title="파일 첨부 (이미지·동영상·문서)">📎</button>
+        <button class="attachbtn" id="suptoggle" title="슈퍼비전 모드: 외부 코딩 에이전트(Claude Code·Codex)를 감독하고 다음 단계를 추천">🔭</button>
         <textarea id="goal" rows="1" placeholder="polyrun에게 메시지 보내기…  (예: 매출 차트를 SVG로 그려줘)"></textarea>
         <button class="stopbtn" id="stop" title="현재 작업 중지" hidden>■</button>
         <button class="send" id="run" title="보내기">↑</button>
       </div>
-      <div class="hint">poly 에이전트가 작업 폴더에서 파일을 읽고 쓰고 명령을 실행합니다 · 이미지·동영상·문서 첨부(📎/드래그/붙여넣기) · Shift+Enter 줄바꿈</div>
+      <div class="hint" id="hint">poly 에이전트가 작업 폴더에서 파일을 읽고 쓰고 명령을 실행합니다 · 이미지·동영상·문서 첨부(📎/드래그/붙여넣기) · Shift+Enter 줄바꿈</div>
     </div>
    </div>
    <div class="modelpane" id="modelpane" hidden>
      <div class="topbar">🧠 모델 <span class="sub">여러 개 받아두면 작업·비용에 따라 poly가 자동으로 골라 씁니다</span></div>
      <div class="modelwrap" id="modellist"></div>
-   </div>
-   <div class="suppane" id="suppane" hidden>
-     <div class="topbar">🔭 슈퍼비전 모드 <span class="sub">외부 코딩 에이전트(Claude Code·Codex)를 감독하고 다음 단계를 추천</span></div>
-     <div class="supcfg">
-       <div class="supgrid">
-         <label>프로젝트</label><span class="supproj" id="sup-proj">작업 폴더를 먼저 여세요</span>
-         <label>워커</label>
-         <div>
-           <select id="sup-agent">
-             <option value="claude">Claude Code</option>
-             <option value="codex">Codex CLI</option>
-             <option value="cmd">사용자 명령(cmd)</option>
-           </select>
-           <input id="sup-cmd" style="margin-top:8px" placeholder='--agent-cmd 예: sh worker.sh  ({prompt} 치환 가능)' hidden />
-         </div>
-         <label>목표</label><textarea id="sup-goal" rows="2" placeholder="예: README.md를 추가하고 프로젝트를 설명해줘"></textarea>
-         <label>추천 모델</label><input id="sup-model" placeholder="선택 (예: local/qwen2.5-coder:7b · 비우면 자동 라우팅)" />
-         <label>옵션</label>
-         <div class="supopts">
-           <label class="ck"><input type="checkbox" id="sup-auto" /> AUTO 모드</label>
-           <span class="maxwrap">최대 실행 <input id="sup-max" type="number" value="5" min="1" max="50" /> 회</span>
-         </div>
-         <span></span>
-         <div class="supbtns">
-           <button class="supb" id="sup-stop" disabled>■ 중지</button>
-           <button class="supb" id="sup-continue">✎ 수정하기</button>
-           <button class="supb primary" id="sup-start">▶ 시작</button>
-         </div>
-       </div>
-     </div>
-     <div class="suptimeline" id="sup-timeline">
-       <div class="supempty">작업 폴더와 목표를 정하고 <b>시작</b>을 누르세요. poly가 워커를 구동 → diff를 읽고 → 다음 지시를 추천합니다.</div>
-     </div>
    </div>
    <div class="preview" id="preview" hidden>
      <div class="pvhead"><span class="pvic" id="pvic">◆</span><span class="pvname" id="pvname"></span><button id="pvclose" title="닫기">✕</button></div>
@@ -487,7 +496,7 @@ function renderQuestion(q,options){ if(!cur) assistantStart(); busyOff();
     const inp=document.createElement("input"); inp.type="text"; inp.placeholder="원하는 내용을 직접 입력하세요…";
     const send=document.createElement("button"); send.className="qopt sel"; send.textContent="보내기";
     const submit=()=>{ const v=inp.value.trim(); if(!v) return; choose(v); };
-    send.onclick=submit; inp.addEventListener("keydown",e=>{ if(e.key==="Enter"){e.preventDefault();submit();} });
+    send.onclick=submit; inp.addEventListener("keydown",e=>{ if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229){e.preventDefault();submit();} });
     row.appendChild(inp); row.appendChild(send); ob.appendChild(row); inp.focus(); scroll();
   };
   ob.appendChild(custom);
@@ -527,14 +536,38 @@ function setCwd(p){ cwd=p; knownFiles=null;
   $("folder").textContent=p||"클릭해서 폴더 열기";
   $("folderbox").classList.toggle("set",!!p);
   $("subtitle").textContent=p?("📁 "+p):"";
-  const sp=$("sup-proj"); if(sp) sp.textContent=p||"작업 폴더를 먼저 여세요";
+  const fl=$("fileslabel"); if(fl) fl.textContent=p?("파일 · "+name):"파일";
+  addFolder(p);     // remember it in the recent-folders switcher
   refreshFiles();
 }
+// Switch the active workspace: remember the folder, then switch to (or create) its conversation.
+function switchToFolder(p){ if(!p) return;
+  if(p===cwd){ showView("chat"); return; }
+  snapshotCur(); persistConvs();
+  setCwd(p); bindFolderConv(p); showView("chat");
+}
+function selectFolder(p){ switchToFolder(p); }
 async function pickFolder(){ const p=await window.poly.pickFolder();
-  if(typeof p==="string"&&p){ setCwd(p); }
+  if(typeof p==="string"&&p){ if(p===cwd){ showView("chat"); } else { snapshotCur(); persistConvs(); setCwd(p); bindFolderConv(p); showView("chat"); } }
   else if(p&&p.error){ showView("chat"); assistantStart(); status("폴더 열기 실패: "+p.error,"err"); }
 }
 $("folderbox").onclick=pickFolder;
+
+/* ---- recent working folders (selectable like the chat list; each folder owns its conversations) ---- */
+let folders=[];
+function loadFolders(){ try{ folders=JSON.parse(localStorage.getItem("polyrun.folders")||"[]"); }catch{ folders=[]; } if(!Array.isArray(folders)) folders=[]; }
+function persistFolders(){ try{ localStorage.setItem("polyrun.folders", JSON.stringify(folders.slice(0,40))); }catch{} }
+function addFolder(p){ if(!p) return; folders=folders.filter(x=>x!==p); folders.unshift(p); persistFolders(); renderFolders(); }
+function removeFolder(p){ folders=folders.filter(x=>x!==p); persistFolders(); renderFolders(); }
+function renderFolders(){ const box=$("folders"); if(!box) return; box.innerHTML="";
+  if(!folders.length){ box.innerHTML='<div class="convempty">아직 연 폴더가 없어요</div>'; return; }
+  folders.forEach(p=>{ const el=document.createElement("div"); el.className="folderitem"+(p===cwd?" active":"");
+    const nm=(p||"").split(/[\\/]/).filter(Boolean).pop()||p;
+    const ic=document.createElement("span"); ic.className="fi2"; ic.textContent="📁"; el.appendChild(ic);
+    const t=document.createElement("span"); t.className="ft"; t.textContent=nm; t.title=p; el.appendChild(t);
+    const x=document.createElement("button"); x.className="fx"; x.textContent="✕"; x.title="목록에서 제거"; x.onclick=(ev)=>{ev.stopPropagation();removeFolder(p);}; el.appendChild(x);
+    el.onclick=()=>selectFolder(p); box.appendChild(el); });
+}
 
 /* ---- markdown ---- */
 function mdToHtml(md){
@@ -585,7 +618,10 @@ $("pick").onclick=pickFolder;
 
 const ta=$("goal");
 ta.addEventListener("input",()=>{ta.style.height="auto";ta.style.height=Math.min(ta.scrollHeight,170)+"px";});
-ta.addEventListener("keydown",(e)=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();run();}});
+// Enter sends — but NOT the Enter that commits a Korean/CJK IME composition (한글 조합 확정).
+// Without the isComposing/keyCode-229 guard, the commit-Enter both sends and leaves the trailing
+// syllable behind, firing a stray second message (e.g. "...만들어" → an extra "어").
+ta.addEventListener("keydown",(e)=>{ if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing&&e.keyCode!==229){e.preventDefault();run();}});
 
 /* ---- chat attachments (image · video keyframes · documents) ---- */
 let attachments=[];
@@ -628,10 +664,11 @@ function run(){ const goal=ta.value.trim(); if(!goal && !attachments.length) ret
   touchConvTitle(label);
   ta.value=""; ta.style.height="auto"; attachments=[]; renderAttachTray();
   if(running){ // queue it — runs automatically when the current task finishes
-    queue.push({goal,atts});
+    queue.push({goal,atts,sup:supMode});
     const m=document.createElement("div"); m.className="qpend"; m.textContent="⏳ 대기 중 ("+queue.length+") — 현재 작업이 끝나면 실행됩니다";
     chat.appendChild(m); scroll(true); return;
   }
+  if(supMode){ startSuperviseChat(goal); return; }   // supervision is a chat mode
   startRun(goal,atts,label);
 }
 function startRun(goal,atts,label){ running=true; $("title").textContent=(label||"").slice(0,42);
@@ -642,9 +679,11 @@ function startRun(goal,atts,label){ running=true; $("title").textContent=(label|
 function dequeue(){ if(!queue.length) return; const n=queue.shift();
   // remove the oldest pending marker
   const p=chat.querySelector(".qpend"); if(p) p.remove();
+  if(n.sup){ startSuperviseChat(n.goal); return; }
   startRun(n.goal,n.atts,n.goal||(n.atts||[]).map(a=>a.name).join(", "));
 }
-function stopRun(){ window.poly.stopAgent(); queue=[]; running=false; busyOff();
+function stopRun(){ window.poly.stopAgent(); if(supRunning) window.poly.superviseStop();
+  queue=[]; running=false; supRunning=false; busyOff();
   $("stop").hidden=true; chat.querySelectorAll(".qpend").forEach(e=>e.remove());
   status("■ 중지됨","info");
 }
@@ -687,33 +726,29 @@ window.poly.onEvent((e)=>{
       break;
   }
 });
-window.poly.onAuto((a)=>{ setCwd(a.cwd); if(a.goal) ta.value=a.goal; shotPath=a.shot||"";
-  if(a.view==="supervise"){ showView("supervise"); if(a.goal) $("sup-goal").value=a.goal;
+window.poly.onAuto((a)=>{ setCwd(a.cwd); if(a.cwd) bindFolderConv(a.cwd); if(a.goal) ta.value=a.goal; shotPath=a.shot||"";
+  if(a.view==="supervise"){ setSupMode(true);
     const s=a.sup||{};
     if(s.agent){ $("sup-agent").value=s.agent; $("sup-cmd").hidden=s.agent!=="cmd"; }
     if(s.cmd) $("sup-cmd").value=s.cmd;
     if(s.auto) $("sup-auto").checked=true;
     if(s.max) $("sup-max").value=s.max;
-    if(s.model) $("sup-model").value=s.model;
-    if(s.run) setTimeout(()=>startSupervise(false),500);
+    if(s.run && a.goal){ ta.value=""; setTimeout(()=>startSuperviseChat(a.goal),500); }
   }
   if(a.view==="model"){ showView("model"); if(a.shot){ setTimeout(()=>{const w=document.querySelector(".modelwrap"); if(w) w.scrollTop=w.scrollHeight;},6000); } }
   if(a.preview){ setTimeout(()=>openPreview(a.preview),800); }
-  if(a.run && a.goal){ setTimeout(run,600); }
+  if(a.run && a.goal && a.view!=="supervise"){ setTimeout(run,600); }
   else if(a.preview){ const nm=a.preview.split("/").pop(); userMsg("이 아티팩트를 미리보기로 렌더해줘: "+nm); assistantStart(); status("아티팩트 렌더 → 오른쪽 미리보기 패널","info"); status("✓ "+nm+" 네이티브 렌더 완료 (SVG·PDF·HTML·Markdown·CSV·JSON·XLSX 지원)","ok"); }
 });
 /* ---- supervision mode ---- */
 let supRunning=false, supCurStep=null;
 function showView(which){
   $("chatpane").hidden = which!=="chat";
-  $("suppane").hidden = which!=="supervise";
   $("modelpane").hidden = which!=="model";
   if(which!=="chat") $("preview").hidden = true;
-  if(which==="supervise") $("sup-proj").textContent = cwd || "작업 폴더를 먼저 여세요";
   if(which==="model") loadModels();
 }
 $("navchat").onclick=()=>showView("chat");
-$("navsup").onclick=()=>showView("supervise");
 $("navmodel").onclick=()=>showView("model");
 $("sup-agent").addEventListener("change",()=>{ $("sup-cmd").hidden = $("sup-agent").value!=="cmd"; });
 
@@ -841,58 +876,63 @@ window.poly.onLocalPullDone((d)=>{ busyOff(); installing=false; refreshStatus().
   status(d.ok?("✓ 모델 설치 완료: "+d.id+" — 이제 poly가 작업에 따라 자동 선택합니다."):("⚠ 모델 설치 실패: "+d.id+" (위 콘솔 참고)"), d.ok?"ok":"err"); });
 });
 
-function supEmpty(){ const t=$("sup-timeline"); if(t.querySelector(".supempty")) t.innerHTML=""; }
-function supStepEl(n){
-  let el=document.getElementById("supstep-"+n);
-  if(!el){ supEmpty(); el=document.createElement("div"); el.className="supstep busy"; el.id="supstep-"+n;
-    el.innerHTML='<div class="sh"><span class="num">단계 '+n+'</span><span class="t">워커 실행 중…</span></div>';
-    $("sup-timeline").appendChild(el); }
-  return el;
+// ── Supervision as a chat mode ──────────────────────────────────────────────
+// Toggle 🔭 in the composer; the next message becomes the goal. poly drives an
+// external coding agent (Claude Code / Codex), reads the diff, and recommends the
+// next step — all streamed into the current conversation (no separate tab).
+let supMode=false;
+function setSupMode(on){ supMode=!!on;
+  $("suptoggle").classList.toggle("active",supMode);
+  $("supbar").hidden=!supMode;
+  $("goal").placeholder = supMode
+    ? "감독할 목표를 입력하세요…  (예: README를 추가하고 테스트를 통과시켜줘)"
+    : "polyrun에게 메시지 보내기…  (예: 매출 차트를 SVG로 그려줘)";
+  $("hint").textContent = supMode
+    ? "🔭 슈퍼비전: 외부 코딩 에이전트를 구동 → diff를 읽고 → 다음 지시를 추천합니다 · AUTO는 자동 반복"
+    : "poly 에이전트가 작업 폴더에서 파일을 읽고 쓰고 명령을 실행합니다 · 이미지·동영상·문서 첨부(📎/드래그/붙여넣기) · Shift+Enter 줄바꿈";
 }
-function supAdd(el,html){ const d=document.createElement("div"); d.innerHTML=html; while(d.firstChild) el.appendChild(d.firstChild); }
-function supScroll(){ const t=$("sup-timeline"); t.scrollTop=t.scrollHeight; }
+$("suptoggle").onclick=()=>setSupMode(!supMode);
 
-function startSupervise(continueMode){
-  if(!cwd){ showView("supervise"); $("sup-proj").textContent="⚠ 작업 폴더를 먼저 여세요 (좌측 '작업 폴더 열기')"; return; }
-  const goal=$("sup-goal").value.trim();
-  if(!goal && !continueMode){ $("sup-goal").focus(); return; }
-  if(supRunning) return;
-  supRunning=true; $("sup-start").disabled=true; $("sup-continue").disabled=true; $("sup-stop").disabled=false;
-  const opts={ cwd, goal, agent:$("sup-agent").value, cmd:$("sup-cmd").value.trim(),
-    auto:$("sup-auto").checked, maxRuns:parseInt($("sup-max").value,10)||5,
-    model:$("sup-model").value.trim(), cont:!!continueMode };
-  if(continueMode) window.poly.superviseContinue(opts); else window.poly.superviseRun(opts);
+// Kicked from run() when supMode is on. Streams supervision into the chat.
+function startSuperviseChat(goal){
+  running=true; supRunning=true; $("stop").hidden=false;
+  $("title").textContent=(goal||"슈퍼비전").slice(0,42);
+  assistantStart();
+  const agent=$("sup-agent").value, auto=$("sup-auto").checked, max=parseInt($("sup-max").value,10)||5;
+  status("🔭 슈퍼비전 시작 · 워커: "+agent+(auto?(" · AUTO(최대 "+max+"회)"):" · 수동"),"step");
+  busyOn("워커 구동 준비 중…");
+  window.poly.superviseRun({ cwd, goal, agent, cmd:($("sup-cmd").value||"").trim(),
+    auto, maxRuns:max, model:"", cont:false });
 }
-$("sup-start").onclick=()=>startSupervise(false);
-$("sup-continue").onclick=()=>startSupervise(true);
-$("sup-stop").onclick=()=>{ window.poly.superviseStop(); };
 
 window.poly.onSuperviseEvent((e)=>{
   switch(e.type){
-    case "session": supCurStep=0; break;
-    case "agent-start":{ supCurStep=e.step; const el=supStepEl(e.step); el.classList.add("busy");
-      el.querySelector(".t").textContent=e.agent;
-      if(!el.querySelector(".ins")) supAdd(el,'<div class="lbl">지시</div><div class="ins">'+esc(e.instruction)+'</div>'); supScroll(); break; }
-    case "agent-done":{ const el=supStepEl(e.step);
-      supAdd(el,'<div class="pills"><span class="pill">워커 '+(e.killed?'중단':'종료 '+e.code)+'</span><span class="pill">'+(e.ms/1000).toFixed(1)+'s</span></div>'); break; }
-    case "diff":{ const el=supStepEl(e.step); const d=e.diff;
-      const last=el.querySelector(".pills");
-      const html = d.empty ? '<span class="pill">변경 없음</span>' : '<span class="pill">'+d.filesChanged+'개 파일</span><span class="pill add">+'+d.insertions+'</span><span class="pill del">−'+d.deletions+'</span>';
-      if(last){ const t=document.createElement("template"); t.innerHTML=html; last.appendChild(t.content);} else supAdd(el,'<div class="pills">'+html+'</div>');
-      break; }
-    case "recommendation":{ const el=supStepEl(e.step); el.classList.remove("busy"); const r=e.rec;
-      const cls=r.done?"done":r.aligned?"ok":"off"; const label=r.done?"✓ 완료":r.aligned?"정상 진행":"경로 이탈"; el.classList.add("v-"+cls);
-      let html='<div class="verdictrow"><span class="badge '+cls+'">⟐ '+label+(r.heuristic?' (heuristic)':'')+'</span><span class="bar"><i style="width:'+(r.progress||0)+'%"></i></span><span class="pct">'+(r.progress||0)+'%</span></div>';
-      if(r.summary) html+='<div class="summary">'+esc(r.summary)+'</div>';
-      (r.concerns||[]).forEach(c=>{html+='<div class="concern">⚠ '+esc(c)+'</div>';});
-      if(!r.done && r.nextInstruction) html+='<div class="next"><b>→ 다음 지시</b><br>'+esc(r.nextInstruction)+'</div>';
-      supAdd(el,html); supScroll(); break; }
-    case "result":{ supAdd($("sup-timeline"),
-      '<div class="supresult">'+(e.done?'✅ 목표 달성':'■ 종료'+(e.stoppedReason?' · '+e.stoppedReason:''))+
-      '<div class="rmeta">실행 '+(e.runs||e.step||0)+'회 · $'+(e.costUsd||0).toFixed(4)+
-      (!e.done && e.nextInstruction?' · <b>수정하기</b>로 다음 지시 적용':'')+'</div></div>'); supScroll(); break; }
+    case "session": break;
+    case "agent-start":{ busyOff(); status("▶ 실행 "+e.step+" · 워커: "+e.agent,"step");
+      termBox("🔭 워커 #"+e.step+" · "+e.agent); if(e.instruction) termLine("[지시] "+e.instruction);
+      busyOn("워커 작업 중… (외부 에이전트 실행)"); break; }
+    case "agent-done":{ busyOff(); status("워커 "+(e.killed?"중단":"종료 "+e.code)+" · "+((e.ms||0)/1000).toFixed(1)+"s","info"); break; }
+    case "diff":{ const d=e.diff||{};
+      status(d.empty?"변경 없음":("변경 "+d.filesChanged+"개 파일 · +"+d.insertions+" −"+d.deletions),"info");
+      refreshFiles(); break; }
+    case "recommendation":{ busyOff(); const r=e.rec||{};
+      status((r.done?"✅ 완료":(r.aligned?"정상 진행":"⚠ 경로 이탈"))+(r.heuristic?" (heuristic)":""), r.done||r.aligned?"ok":"err");
+      // progress bar
+      const pb=document.createElement("div"); pb.className="supbar2";
+      pb.innerHTML='<span class="b"><i style="width:'+(r.progress||0)+'%"></i></span><span class="pct">'+(r.progress||0)+'%</span>';
+      if(cur) cur.appendChild(pb);
+      if(r.summary){ const s=document.createElement("div"); s.className="supsum"; s.textContent=r.summary; if(cur) cur.appendChild(s); }
+      (r.concerns||[]).forEach(c=>status("⚠ "+c,"err"));
+      if(!r.done && r.nextInstruction){ const n=document.createElement("div"); n.className="nextcard";
+        n.innerHTML='<b>→ 다음 지시</b><br>'+esc(r.nextInstruction); if(cur) cur.appendChild(n); }
+      scroll(); break; }
+    case "result":{ busyOff(); status((e.done?"✅ 목표 달성":"■ 종료"+(e.stoppedReason?" · "+e.stoppedReason:""))+
+      " · 실행 "+(e.runs||e.step||0)+"회 · $"+(e.costUsd||0).toFixed(4), e.done?"ok":"info"); break; }
     case "log": break;
-    case "exit": supRunning=false; $("sup-start").disabled=false; $("sup-continue").disabled=false; $("sup-stop").disabled=true; refreshFiles(); break;
+    case "exit": busyOff(); supRunning=false; running=false; $("stop").hidden=true;
+      refreshFiles(); snapshotCur(); persistConvs();
+      if(queue.length) setTimeout(dequeue,300);
+      break;
   }
 });
 
@@ -905,19 +945,42 @@ function curConv(){ return convs.find(c=>c.id===curConvId); }
 function snapshotCur(){ const c=curConv(); if(c){ c.html=chat.innerHTML; c.ts=Date.now(); } }
 function newConvId(){ return "c"+Date.now()+"-"+Math.floor(Math.random()*1e4); }
 function setChat(html){ chat.innerHTML=html||HELLO_HTML; cur=null; curP=null; spinnerRow=null; scroll(); }
+// Conversations are scoped to the current working folder — switching folders shows that
+// folder's chats. Legacy convs (no .cwd) are treated as belonging to whatever folder is active.
+function convsHere(){ const k=cwd||null; return convs.filter(c=>(c.cwd||null)===k); }
 function renderConvs(){ const box=$("convs"); box.innerHTML="";
-  if(!convs.length){ box.innerHTML='<div class="convempty">아직 대화가 없어요</div>'; return; }
-  convs.slice().sort((a,b)=>b.ts-a.ts).forEach(c=>{ const el=document.createElement("div"); el.className="conv"+(c.id===curConvId?" active":"");
+  const here=convsHere();
+  if(!here.length){ box.innerHTML='<div class="convempty">'+(cwd?"이 폴더엔 아직 대화가 없어요":"폴더를 선택하면 대화가 모여요")+'</div>'; return; }
+  here.sort((a,b)=>b.ts-a.ts).forEach(c=>{ const el=document.createElement("div"); el.className="conv"+(c.id===curConvId?" active":"");
     const t=document.createElement("span"); t.className="ct"; t.textContent=c.title||"새 대화"; el.appendChild(t);
     const x=document.createElement("button"); x.className="cx"; x.textContent="✕"; x.title="삭제"; x.onclick=(ev)=>{ev.stopPropagation();deleteConv(c.id);}; el.appendChild(x);
     el.onclick=()=>loadConv(c.id); box.appendChild(el); });
 }
-function newConv(){ snapshotCur(); const c={id:newConvId(),title:"새 대화",html:"",ts:Date.now()}; convs.push(c); curConvId=c.id; setChat(""); $("title").textContent="새 대화"; showView("chat"); renderConvs(); persistConvs(); }
+function newConv(){ snapshotCur(); const c={id:newConvId(),title:"새 대화",html:"",ts:Date.now(),cwd:cwd||null}; convs.push(c); curConvId=c.id; setChat(""); $("title").textContent="새 대화"; showView("chat"); renderConvs(); persistConvs(); }
 function loadConv(id){ if(id===curConvId){ showView("chat"); return; } snapshotCur(); curConvId=id; const c=curConv(); setChat(c&&c.html?c.html:""); $("title").textContent=(c&&c.title)||"새 대화"; showView("chat"); renderConvs(); persistConvs(); }
-function deleteConv(id){ convs=convs.filter(c=>c.id!==id); if(curConvId===id){ if(convs.length){ const n=convs.slice().sort((a,b)=>b.ts-a.ts)[0]; curConvId=n.id; setChat(n.html); $("title").textContent=n.title||"새 대화"; } else { newConv(); return; } } renderConvs(); persistConvs(); }
+// Switch the visible chat to the given folder's most-recent conversation (create one if none).
+function bindFolderConv(p){ const k=p||null;
+  const here=convs.filter(c=>(c.cwd||null)===k).sort((a,b)=>b.ts-a.ts);
+  if(here.length){ curConvId=here[0].id; const c=curConv(); setChat(c&&c.html?c.html:""); $("title").textContent=(c&&c.title)||"새 대화"; }
+  else { const c={id:newConvId(),title:"새 대화",html:"",ts:Date.now(),cwd:k}; convs.push(c); curConvId=c.id; setChat(""); $("title").textContent="새 대화"; }
+  renderConvs(); renderFolders(); persistConvs();
+}
+function deleteConv(id){ convs=convs.filter(c=>c.id!==id);
+  if(curConvId===id){ const here=convsHere().sort((a,b)=>b.ts-a.ts);
+    if(here.length){ const n=here[0]; curConvId=n.id; setChat(n.html); $("title").textContent=n.title||"새 대화"; }
+    else { newConv(); return; } }
+  renderConvs(); persistConvs(); }
 function touchConvTitle(text){ const c=curConv(); if(c && (!c.title||c.title==="새 대화") && text){ c.title=text.replace(/\n.*$/s,"").slice(0,40); renderConvs(); persistConvs(); } }
 $("newconv").onclick=newConv;
-function initConvs(){ loadConvs(); if(convs.length){ const n=convs.slice().sort((a,b)=>b.ts-a.ts)[0]; curConvId=n.id; if(n.html) setChat(n.html); $("title").textContent=n.title||"새 대화"; } else { convs.push({id:newConvId(),title:"새 대화",html:"",ts:Date.now()}); curConvId=convs[0].id; } renderConvs(); }
+function initConvs(){
+  // migrate pre-folder conversations so they bind to the restored working folder
+  let migrated=false; for(const c of convs){ if(c.cwd===undefined){ c.cwd=cwd||null; migrated=true; } }
+  if(migrated) persistConvs();
+  const here=convsHere().sort((a,b)=>b.ts-a.ts);
+  if(here.length){ curConvId=here[0].id; const c=here[0]; if(c.html) setChat(c.html); $("title").textContent=c.title||"새 대화"; }
+  else { const c={id:newConvId(),title:"새 대화",html:"",ts:Date.now(),cwd:cwd||null}; convs.push(c); curConvId=c.id; }
+  renderConvs();
+}
 
 /* ---- auth gate (Google login + first-run terms consent) ---- */
 const TERMS_HTML=`
@@ -949,11 +1012,14 @@ function reportErr(source,message,stack,context){ try{ window.poly.reportError({
 window.addEventListener("error",e=>reportErr("renderer:error", e.message, e.error&&e.error.stack, {file:e.filename,line:e.lineno}));
 window.addEventListener("unhandledrejection",e=>reportErr("renderer:rejection", (e.reason&&e.reason.message)||String(e.reason), e.reason&&e.reason.stack));
 
+// Load persisted state, restore the last-used working folder, THEN bind conversations to it.
+loadConvs();
+loadFolders();
+try{ const sc=localStorage.getItem("polyrun.cwd"); if(sc && !cwd) setCwd(sc); }catch{}
+renderFolders();
 initConvs();
 refreshStatus();
 refreshAuth();
-// Restore the last-used working folder (persists across restarts).
-try{ const sc=localStorage.getItem("polyrun.cwd"); if(sc && !cwd) setCwd(sc); }catch{}
 </script>
 </body>
 </html>
