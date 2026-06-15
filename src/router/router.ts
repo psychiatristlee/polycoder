@@ -81,6 +81,27 @@ export function candidatesFor(
   });
 }
 
+/**
+ * Ranked models for a task (best first) — the full fallback chain. Never empty when any
+ * model exists: if nothing clears the capability floor, fall back to all usable models
+ * (tool-capable first), strongest-for-task first. The agent loop walks this to switch
+ * models when one fails (e.g. a local model that can't load), with no API key needed.
+ */
+export function rankedCandidates(
+  taskType: TaskType,
+  models: ModelInfo[],
+  policy: RoutingPolicy,
+  est?: TokenEstimate
+): ModelInfo[] {
+  const cands = candidatesFor(taskType, models, policy, est);
+  if (cands.length) return rank(cands, policy, taskType);
+  const spec = TASK_SPECS[taskType];
+  const usable = models.filter((m) => m.id !== "openrouter/auto" && (!spec.needsTools || m.capabilities.tools));
+  const byStrength = (a: ModelInfo, b: ModelInfo) => taskStrength(b, taskType) - taskStrength(a, taskType);
+  const withTools = usable.filter((m) => m.capabilities.tools).sort(byStrength);
+  return (withTools.length ? withTools : [...usable].sort(byStrength));
+}
+
 function rank(models: ModelInfo[], policy: RoutingPolicy, taskType: TaskType): ModelInfo[] {
   const sorted = [...models];
   switch (policy.objective) {

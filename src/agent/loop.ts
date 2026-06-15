@@ -6,7 +6,7 @@ import {
   applyRung,
   rungForTier,
 } from "../router/policy.js";
-import { route, routeOrBest } from "../router/router.js";
+import { route, routeOrBest, rankedCandidates } from "../router/router.js";
 import { planRequest, heuristicPlan, classifyGoalType } from "../planner/planner.js";
 import type { Plan, PlannedStep } from "../planner/tasks.js";
 import { TOOL_SCHEMAS, executeTool, parseTextToolCall, type ToolContext, type ToolOutcome } from "./tools.js";
@@ -403,44 +403,53 @@ async function runStep(
   goal: string,
   skillContext?: string
 ): Promise<StepResult> {
-  const r = routeOrBest(step.type, deps.models, policy, {
-    promptTokens: step.estPromptTokens,
-    completionTokens: step.estCompletionTokens,
-  });
-  if (!r) {
+  const est = { promptTokens: step.estPromptTokens, completionTokens: step.estCompletionTokens };
+  // Full fallback chain: if a model fails (e.g. a local model that can't load, or runs out
+  // of memory), automatically move on to the next-best AVAILABLE model — no reconfig, no
+  // API key needed. The explore pick (epsilon-greedy) goes first when it fires.
+  const explore = route(step.type, deps.models, policy, est);
+  let chain = rankedCandidates(step.type, deps.models, policy, est);
+  if (explore?.explored && explore.model) chain = [explore.model, ...chain.filter((m) => m.id !== explore.model.id)];
+  if (!chain.length) {
     emit({ type: "error", message: `No capable model for step ${step.id} (${step.type}).` });
     return { summary: "(no model)", success: false };
   }
-  const model = r.model;
-  emit({ type: "step-start", step, model, estCostUsd: r.estCostUsd, explored: r.explored });
+  const MAX_MODELS = Math.min(chain.length, 4);
 
-  const messages: ChatMessage[] = [
-    { role: "system", content: stepSystemPrompt(goal, step, priorSummaries, model.capabilities.tools, skillContext) },
-    { role: "user", content: step.description },
-  ];
-  const loop = await runToolLoop(model, messages, step.type, rungDef, deps, toolCtx, emit, logUsage);
+  let loop: LoopResult | null = null;
+  let model: ModelInfo = chain[0];
+  for (let i = 0; i < MAX_MODELS; i++) {
+    model = chain[i];
+    if (i > 0) emit({ type: "error", message: `↻ 다른 모델로 전환: ${model.id} (이전 모델 실패)` });
+    emit({ type: "step-start", step, model, estCostUsd: 0, explored: i === 0 && !!explore?.explored });
+    const messages: ChatMessage[] = [
+      { role: "system", content: stepSystemPrompt(goal, step, priorSummaries, model.capabilities.tools, skillContext) },
+      { role: "user", content: step.description },
+    ];
+    loop = await runToolLoop(model, messages, step.type, rungDef, deps, toolCtx, emit, logUsage);
+    recordStepRun({
+      sessionId: deps.sessionId,
+      stepNo: step.id,
+      taskType: step.type,
+      skill: TASK_SKILL[step.type],
+      model: model.id,
+      provider: model.provider,
+      iterations: loop.iterations,
+      toolCalls: loop.toolCalls,
+      promptTokens: loop.prompt,
+      completionTokens: loop.completion,
+      costUsd: loop.cost,
+      finishedBy: loop.finishedBy,
+      success: loop.success,
+      durationMs: loop.durationMs,
+    });
+    if (loop.success || loop.finishedBy !== "error") break; // only a hard model error triggers a switch
+  }
 
-  recordStepRun({
-    sessionId: deps.sessionId,
-    stepNo: step.id,
-    taskType: step.type,
-    skill: TASK_SKILL[step.type],
-    model: model.id,
-    provider: model.provider,
-    iterations: loop.iterations,
-    toolCalls: loop.toolCalls,
-    promptTokens: loop.prompt,
-    completionTokens: loop.completion,
-    costUsd: loop.cost,
-    finishedBy: loop.finishedBy,
-    success: loop.success,
-    durationMs: loop.durationMs,
-  });
-
-  const summary = loop.summary || "(no summary)";
+  const summary = loop!.summary || "(no summary)";
   priorSummaries.push(`Step ${step.id} (${step.type}): ${summary}`);
   emit({ type: "step-end", step, summary });
-  return { summary, success: loop.success };
+  return { summary, success: loop!.success };
 }
 
 async function runFix(
