@@ -137,7 +137,19 @@
   .modelpane[hidden]{display:none}
   .modelwrap{flex:1;overflow:auto;padding:22px 26px}
   .modelnote{font-size:12.5px;color:var(--mut);max-width:760px;margin:0 auto 14px;line-height:1.6}
-  .modelgroup{max-width:760px;margin:18px auto 8px;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--soft);font-weight:700}
+  .modelgroup{max-width:760px;margin:14px auto 8px;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--soft);font-weight:700}
+  .modelsection{max-width:760px;margin:22px auto 10px;font-family:Georgia,serif;font-size:16px;color:var(--accent);font-weight:700;border-bottom:1px solid var(--border);padding-bottom:6px}
+  .cloudfilter{display:block;max-width:760px;margin:6px auto 12px;width:100%;padding:9px 13px;border-radius:10px;border:1px solid var(--border2);background:var(--card);color:var(--fg);font:inherit;font-size:13px;outline:none}
+  .cloudfilter:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(110,36,54,.08)}
+  .cloudprov{max-width:760px;margin:12px auto 5px;font-size:11px;color:var(--soft);font-weight:700;text-transform:capitalize}
+  .cloudrow{display:flex;align-items:center;gap:10px;max-width:760px;margin:0 auto 5px;background:var(--card);border:1px solid var(--border);border-radius:9px;padding:8px 13px;font-size:12.5px}
+  .cloudrow .cn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg)}
+  .cloudrow .ctier{font-size:10px;border-radius:999px;padding:1px 8px;font-weight:700;flex-shrink:0}
+  .ctier.t-cheap{background:rgba(74,107,77,.14);color:var(--green)} .ctier.t-standard{background:rgba(94,107,136,.16);color:var(--blue)} .ctier.t-frontier{background:rgba(110,36,54,.12);color:var(--accent2)}
+  .cloudrow .cp{font-size:11px;color:var(--mut);flex-shrink:0;font-variant-numeric:tabular-nums}
+  .cloudrow .cav{font-size:10.5px;flex-shrink:0;border-radius:999px;padding:1px 8px}
+  .cloudrow .cav.ok{color:var(--green)} .cloudrow .cav.no{color:var(--soft)}
+  .cloudmore{max-width:760px;margin:2px auto 6px;font-size:11.5px;color:var(--soft);padding-left:4px}
   .modelrow{display:flex;align-items:center;gap:14px;max-width:760px;margin:0 auto 10px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:13px 16px;box-shadow:var(--shadow)}
   .modelrow.on{border-left:3px solid var(--gold)}
   .modelrow .mi{flex:1;min-width:0}
@@ -613,7 +625,7 @@ window.poly.onAuto((a)=>{ setCwd(a.cwd); if(a.goal) ta.value=a.goal; shotPath=a.
     if(s.model) $("sup-model").value=s.model;
     if(s.run) setTimeout(()=>startSupervise(false),500);
   }
-  if(a.view==="model"){ showView("model"); }
+  if(a.view==="model"){ showView("model"); if(a.shot){ setTimeout(()=>{const w=document.querySelector(".modelwrap"); if(w) w.scrollTop=w.scrollHeight;},6000); } }
   if(a.preview){ setTimeout(()=>openPreview(a.preview),800); }
   if(a.run && a.goal){ setTimeout(run,600); }
   else if(a.preview){ const nm=a.preview.split("/").pop(); userMsg("이 아티팩트를 미리보기로 렌더해줘: "+nm); assistantStart(); status("아티팩트 렌더 → 오른쪽 미리보기 패널","info"); status("✓ "+nm+" 네이티브 렌더 완료 (SVG·PDF·HTML·Markdown·CSV·JSON·XLSX 지원)","ok"); }
@@ -639,8 +651,13 @@ const ROLE_ORDER=["coding","reasoning","general","vision"];
 async function loadModels(){
   const box=$("modellist"); box.innerHTML='<div class="modelnote">불러오는 중…</div>';
   const cat=await window.poly.localCatalog();
+  box.innerHTML="";
+  const sec=(t)=>{ const d=document.createElement("div"); d.className="modelsection"; d.textContent=t; box.appendChild(d); };
+  const note=(html)=>{ const d=document.createElement("div"); d.className="modelnote"; d.innerHTML=html; box.appendChild(d); };
+  // ── Local (Ollama) ──
+  sec("🖥 로컬 (Ollama · 다운로드해서 사용)");
   if(!cat){
-    box.innerHTML='<div class="modelnote">로컬 런타임(Ollama)이 아직 없어요. 아래에서 모델을 <b>설치</b>하면 Ollama까지 자동으로 깔립니다. (또는 OpenRouter 키로 클라우드 모델 사용)</div>';
+    note("로컬 런타임(Ollama)이 아직 없어요. 아래에서 모델을 <b>설치</b>하면 Ollama까지 자동으로 깔립니다.");
     const def=[
       {id:"qwen2.5-coder:7b",label:"Qwen2.5 Coder 7B",note:"균형형 코더",sizeGb:4.7,role:"coding"},
       {id:"qwen2.5-coder:14b",label:"Qwen2.5 Coder 14B",note:"강력한 코더",sizeGb:9,role:"coding"},
@@ -648,11 +665,51 @@ async function loadModels(){
       {id:"llama3.1:8b",label:"Llama 3.1 8B",note:"범용",sizeGb:4.7,role:"general"},
       {id:"llava:7b",label:"LLaVA 7B",note:"이미지 이해",sizeGb:4.7,role:"vision"},
     ];
-    renderModelGroups(box, def.map(m=>({...m,fits:true,installed:false}))); return;
+    renderModelGroups(box, def.map(m=>({...m,fits:true,installed:false})));
+  } else {
+    const n=cat.models.filter(m=>m.installed).length;
+    note("이 머신: RAM "+cat.ramGb+"GB · 여유 디스크 "+cat.freeDiskGb+"GB · 설치됨 "+n+"개 · 로컬 라우팅 "+(cat.enabled?"<b>켜짐</b>":"꺼짐")+"<br>여러 개 받아두면 poly가 작업(코딩·추론·범용)과 비용에 맞춰 <b>자동으로 골라 씁니다</b>.");
+    renderModelGroups(box, cat.models);
   }
-  const n=cat.models.filter(m=>m.installed).length;
-  box.innerHTML='<div class="modelnote">이 머신: RAM '+cat.ramGb+'GB · 여유 디스크 '+cat.freeDiskGb+'GB · 설치됨 '+n+'개 · 로컬 라우팅 '+(cat.enabled?'<b>켜짐</b>':'꺼짐')+'<br>여러 개 받아두면 poly가 작업(코딩·추론·범용)과 비용에 맞춰 <b>자동으로 골라 씁니다</b>.</div>';
-  renderModelGroups(box, cat.models);
+  // ── Cloud (OpenRouter) ──
+  await appendCloud(box);
+}
+async function appendCloud(box){
+  const sec=document.createElement("div"); sec.className="modelsection"; sec.textContent="☁️ 클라우드 (OpenRouter · 키만 있으면 바로)"; box.appendChild(sec);
+  const cloud=await window.poly.cloudCatalog();
+  if(!cloud||!cloud.models){ const d=document.createElement("div"); d.className="modelnote"; d.textContent="클라우드 카탈로그를 불러오지 못했어요 (네트워크 확인)."; box.appendChild(d); return; }
+  const list=cloud.models.filter(m=>!m.local);
+  const note=document.createElement("div"); note.className="modelnote";
+  note.innerHTML=(cloud.hasKey?'키 설정됨 — <b>바로 사용 가능</b>':'<b>키를 넣으면</b> 바로 사용')+' · '+list.length+'개 · 설치 불필요, poly가 작업·비용에 맞춰 <b>자동 선택</b>. '+(cloud.hasKey?'':'<a id="cloudkey" style="color:var(--gold);cursor:pointer">키 넣기 →</a>');
+  box.appendChild(note);
+  const ck=note.querySelector("#cloudkey"); if(ck) ck.onclick=()=>openLogin();
+  const filter=document.createElement("input"); filter.className="cloudfilter"; filter.placeholder="🔎 모델 검색 (claude, gpt, gemini, deepseek, qwen…)"; box.appendChild(filter);
+  const listbox=document.createElement("div"); box.appendChild(listbox);
+  const render=(q)=>{ listbox.innerHTML=""; const ql=(q||"").toLowerCase();
+    const fl=list.filter(m=>!ql||m.id.toLowerCase().includes(ql)||m.name.toLowerCase().includes(ql)||m.provider.toLowerCase().includes(ql));
+    const groups={}; fl.forEach(m=>(groups[m.provider]=groups[m.provider]||[]).push(m));
+    const provs=Object.keys(groups).sort((a,b)=>groups[b].length-groups[a].length);
+    if(!provs.length){ listbox.innerHTML='<div class="modelnote">검색 결과 없음</div>'; return; }
+    for(const p of provs){ const ph=document.createElement("div"); ph.className="cloudprov"; ph.textContent=p+" ("+groups[p].length+")"; listbox.appendChild(ph);
+      groups[p].sort((a,b)=>(a.promptUsd+a.completionUsd)-(b.promptUsd+b.completionUsd));
+      const cap=ql?groups[p].length:12;
+      groups[p].slice(0,cap).forEach(m=>listbox.appendChild(cloudRow(m,cloud.hasKey)));
+      if(!ql && groups[p].length>cap){ const more=document.createElement("div"); more.className="cloudmore"; more.textContent="+"+(groups[p].length-cap)+"개 더 (검색으로 보기)"; listbox.appendChild(more); }
+    }
+  };
+  filter.addEventListener("input",()=>render(filter.value));
+  render("");
+}
+function cloudRow(m,hasKey){
+  const row=document.createElement("div"); row.className="cloudrow";
+  const free=m.promptUsd===0&&m.completionUsd===0;
+  const price=free?"무료":("$"+m.promptUsd.toFixed(2)+" / $"+m.completionUsd.toFixed(2)+" /M");
+  const nm=document.createElement("span"); nm.className="cn"; nm.textContent=m.name;
+  const tr=document.createElement("span"); tr.className="ctier t-"+m.tier; tr.textContent=m.tier;
+  const pr=document.createElement("span"); pr.className="cp"; pr.textContent=price;
+  const av=document.createElement("span"); av.className="cav "+(hasKey?"ok":"no"); av.textContent=hasKey?"✓ 사용가능":"키 필요";
+  row.appendChild(nm); row.appendChild(tr); row.appendChild(pr); row.appendChild(av);
+  return row;
 }
 function renderModelGroups(box, models){
   for(const role of ROLE_ORDER){

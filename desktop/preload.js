@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("poly", {
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
   // local model management
   localCatalog: () => ipcRenderer.invoke("local-catalog"),
+  cloudCatalog: () => ipcRenderer.invoke("cloud-catalog"),
   localList: () => ipcRenderer.invoke("local-list"),
   localPull: (id) => ipcRenderer.send("local-pull", id),
   localRm: (id) => ipcRenderer.invoke("local-rm", id),

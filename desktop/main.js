@@ -326,6 +326,7 @@ function runPolyJson(args) {
   });
 }
 ipcMain.handle("local-catalog", () => runPolyJson(["local", "catalog", "--json"]));
+ipcMain.handle("cloud-catalog", () => runPolyJson(["models", "--json"]));
 ipcMain.handle("local-list", () => runPolyJson(["local", "list", "--json"]));
 ipcMain.on("local-pull", (e, id) => {
   const child = spawnPoly(["local", "pull", id, "-y"]);
