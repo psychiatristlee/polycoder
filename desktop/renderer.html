@@ -406,19 +406,33 @@ function termBox(label){ if(!cur) assistantStart();
   box.querySelector(".termhead").onclick=()=>box.classList.toggle("collapsed");
   cur.appendChild(box); curTerm=box; curP=null; scroll(); return box;
 }
+function stripAnsi(s){ return String(s)
+  .replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]/g,"")   // CSI sequences (cursor, colors, [?25l, [1G, [K…)
+  .replace(/\x1b[()][0-9A-Za-z]/g,"")          // charset selects
+  .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g,""); }
+const SPIN=/[█▓▒░⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷]|\b\d+(\.\d+)?\s?[KMGT]i?B\b|\d+%|pulling|verifying|writing manifest|\bmanifest\b|downloading/i;
 function termLine(text,isErr){ if(!curTerm) termBox("터미널");
   const body=curTerm.querySelector(".termbody");
-  const bAtBottom = body.scrollHeight-body.scrollTop-body.clientHeight < 40;
-  for(let ln of String(text).split("\n")){ ln=ln.replace(/\r/g,""); if(ln==="") continue;
-    const prog=/[█▓▒░]|\d+(\.\d+)?\s?[KMG]B\s?\/|^[-\\|/]+$|%$|\d+%/.test(ln);
+  // "stick" = the user is at the bottom. If they scrolled up, we DON'T auto-scroll or pin —
+  // so they can read while a command streams.
+  const stick = body.scrollHeight-body.scrollTop-body.clientHeight < 50;
+  for(let raw of stripAnsi(text).split("\n")){
+    const ln=raw.replace(/\s+$/,""); if(ln==="") continue;
+    const prog=SPIN.test(ln);
     const last=body.lastElementChild;
+    // Collapse consecutive progress/spinner lines into ONE updating line (no spam).
     if(prog && last && last.dataset.prog==="1"){ last.textContent=ln; }
     else { const d=document.createElement("div"); d.textContent=ln; if(prog) d.dataset.prog="1"; if(isErr) d.className="e"; body.appendChild(d); }
   }
-  while(body.childElementCount>600) body.removeChild(body.firstChild);
+  // Trim old lines, but compensate scrollTop when the user is reading above (stable view).
+  let guard=0;
+  while(body.childElementCount>800 && guard++<3000){
+    const first=body.firstElementChild; const h=first.offsetHeight||0;
+    body.removeChild(first);
+    if(!stick) body.scrollTop=Math.max(0, body.scrollTop-h);
+  }
   const tg=curTerm.querySelector(".tg"); if(tg) tg.textContent=body.childElementCount+" 줄";
-  if(bAtBottom) body.scrollTop=body.scrollHeight;   // only follow if user was at the bottom
-  scroll();   // chat-level: smart (won't yank if scrolled up)
+  if(stick){ body.scrollTop=body.scrollHeight; scroll(); }  // only follow + pin chat when at bottom
 }
 function status(text,cls){ if(!cur) assistantStart(); const d=document.createElement("div"); d.className="status "+(cls||""); const dot=document.createElement("span"); dot.className="dot"; const s=document.createElement("span"); s.className=cls||""; s.textContent=text; d.appendChild(dot); d.appendChild(s); cur.appendChild(d); curP=null; scroll(); return d; }
 function tool(text){ if(!cur) assistantStart(); const d=document.createElement("div"); d.className="tool"; d.textContent=text; cur.appendChild(d); curP=null; scroll(); }
