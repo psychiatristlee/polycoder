@@ -20,23 +20,45 @@ export interface ModelSuggestion {
  * "A3B" cuts *compute*, not memory — all expert weights still reside in RAM — so
  * their minRamGb tracks total params, not active params. `rank` = higher is stronger.
  */
+export type ModelRole = "coding" | "general" | "reasoning" | "vision";
 export interface ModelSpec {
   id: string;
   label: string;
   paramsB: number;
   diskGb: number;
   minRamGb: number;
-  rank: number;
+  rank: number; // higher = preferred by auto-pick (coders rank highest — poly is a coding agent)
   note: string;
+  role: ModelRole;
 }
 
+// Curated Ollama models across roles. The model picker shows these grouped by role with
+// per-machine fit; the router auto-switches among whatever is installed, per task/cost.
 export const LOCAL_MODEL_CATALOG: ModelSpec[] = [
-  { id: "qwen2.5-coder:32b", label: "Qwen2.5 Coder 32B", paramsB: 32, diskGb: 20, minRamGb: 32, rank: 6, note: "strongest local coder; needs 32GB+" },
-  { id: "qwen2.5-coder:14b", label: "Qwen2.5 Coder 14B", paramsB: 14, diskGb: 9, minRamGb: 16, rank: 5, note: "strong coder; sweet spot for 16GB" },
-  { id: "qwen2.5-coder:7b", label: "Qwen2.5 Coder 7B", paramsB: 7, diskGb: 4.7, minRamGb: 12, rank: 4, note: "solid coder for ~12–16GB" },
-  { id: "qwen2.5-coder:3b", label: "Qwen2.5 Coder 3B", paramsB: 3, diskGb: 2.0, minRamGb: 8, rank: 3, note: "light coder for 8GB" },
-  { id: "llama3.2:3b", label: "Llama 3.2 3B", paramsB: 3, diskGb: 2.0, minRamGb: 8, rank: 2, note: "fast general; very light" },
-  { id: "qwen2.5-coder:1.5b", label: "Qwen2.5 Coder 1.5B", paramsB: 1.5, diskGb: 1.0, minRamGb: 6, rank: 1, note: "tiny fallback" },
+  // ── Coding ──
+  { id: "qwen2.5-coder:32b", label: "Qwen2.5 Coder 32B", paramsB: 32, diskGb: 20, minRamGb: 32, rank: 24, note: "최강 로컬 코더 (32GB+ 필요)", role: "coding" },
+  { id: "deepseek-coder-v2:16b", label: "DeepSeek-Coder-V2 16B", paramsB: 16, diskGb: 9, minRamGb: 16, rank: 23, note: "강력한 MoE 코더", role: "coding" },
+  { id: "qwen2.5-coder:14b", label: "Qwen2.5 Coder 14B", paramsB: 14, diskGb: 9, minRamGb: 16, rank: 22, note: "강력한 코더 · 16GB 적정", role: "coding" },
+  { id: "qwen2.5-coder:7b", label: "Qwen2.5 Coder 7B", paramsB: 7, diskGb: 4.7, minRamGb: 12, rank: 21, note: "균형형 코더 · 12~16GB", role: "coding" },
+  { id: "codellama:13b", label: "Code Llama 13B", paramsB: 13, diskGb: 7.4, minRamGb: 16, rank: 14, note: "Meta 코더", role: "coding" },
+  { id: "qwen2.5-coder:3b", label: "Qwen2.5 Coder 3B", paramsB: 3, diskGb: 2.0, minRamGb: 8, rank: 13, note: "가벼운 코더 · 8GB", role: "coding" },
+  { id: "qwen2.5-coder:1.5b", label: "Qwen2.5 Coder 1.5B", paramsB: 1.5, diskGb: 1.0, minRamGb: 6, rank: 6, note: "초경량 폴백", role: "coding" },
+  // ── Reasoning ──
+  { id: "deepseek-r1:14b", label: "DeepSeek-R1 14B", paramsB: 14, diskGb: 9, minRamGb: 16, rank: 20, note: "강력한 추론(사고연쇄)", role: "reasoning" },
+  { id: "deepseek-r1:8b", label: "DeepSeek-R1 8B", paramsB: 8, diskGb: 4.9, minRamGb: 12, rank: 16, note: "추론 · 중간 크기", role: "reasoning" },
+  { id: "deepseek-r1:7b", label: "DeepSeek-R1 7B", paramsB: 7, diskGb: 4.7, minRamGb: 12, rank: 15, note: "추론 · 경량", role: "reasoning" },
+  // ── General ──
+  { id: "llama3.1:8b", label: "Llama 3.1 8B", paramsB: 8, diskGb: 4.7, minRamGb: 12, rank: 12, note: "범용 · 견고", role: "general" },
+  { id: "qwen2.5:7b", label: "Qwen2.5 7B", paramsB: 7, diskGb: 4.7, minRamGb: 12, rank: 11, note: "범용 · 균형", role: "general" },
+  { id: "gemma2:9b", label: "Gemma 2 9B", paramsB: 9, diskGb: 5.4, minRamGb: 12, rank: 10, note: "Google 범용", role: "general" },
+  { id: "mistral:7b", label: "Mistral 7B", paramsB: 7, diskGb: 4.1, minRamGb: 12, rank: 9, note: "빠른 범용", role: "general" },
+  { id: "phi3.5", label: "Phi-3.5 Mini", paramsB: 3.8, diskGb: 2.2, minRamGb: 8, rank: 8, note: "작지만 똑똑함", role: "general" },
+  { id: "gemma2:2b", label: "Gemma 2 2B", paramsB: 2, diskGb: 1.6, minRamGb: 8, rank: 5, note: "초경량 범용", role: "general" },
+  { id: "llama3.2:3b", label: "Llama 3.2 3B", paramsB: 3, diskGb: 2.0, minRamGb: 8, rank: 4, note: "빠른 범용 · 매우 가벼움", role: "general" },
+  // ── Vision ──
+  { id: "llama3.2-vision:11b", label: "Llama 3.2 Vision 11B", paramsB: 11, diskGb: 7.9, minRamGb: 16, rank: 7, note: "이미지 이해", role: "vision" },
+  { id: "llava:7b", label: "LLaVA 7B", paramsB: 7, diskGb: 4.7, minRamGb: 12, rank: 3, note: "이미지 이해 · 경량", role: "vision" },
+  { id: "moondream", label: "Moondream 2", paramsB: 1.8, diskGb: 1.7, minRamGb: 8, rank: 2, note: "초경량 비전", role: "vision" },
 ];
 
 const DISK_MARGIN_GB = 3; // keep headroom so the volume doesn't fill up

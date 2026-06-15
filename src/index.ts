@@ -1008,6 +1008,7 @@ localCmd
       sizeGb: m.diskGb,
       paramsB: m.paramsB,
       note: m.note,
+      role: m.role,
       installed: have.includes(m.id),
       fits: have.includes(m.id) || (m.minRamGb <= ram && disk >= m.diskGb + 3),
     }));
