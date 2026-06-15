@@ -1,16 +1,43 @@
 {
   "name": "polyrun",
   "version": "0.1.0",
-  "description": "polyrun — a macOS desktop app that edits files & codes via the poly agent",
+  "description": "polyrun — a cross-platform desktop app that edits files & codes via the poly agent, with subagent + supervision",
   "main": "main.js",
+  "author": "polyrun",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win nsis",
+    "dist:mac": "electron-builder --mac dmg zip",
+    "dist:all": "electron-builder -mw"
   },
   "dependencies": {
     "katex": "^0.16.11",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "electron": "^32.2.0"
+    "electron": "^32.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.polyrun.desktop",
+    "productName": "polyrun",
+    "files": ["main.js", "preload.js", "renderer.html", "node_modules/**/*"],
+    "win": {
+      "target": ["nsis"],
+      "artifactName": "polyrun-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "target": ["AppImage"]
+    }
   }
 }
