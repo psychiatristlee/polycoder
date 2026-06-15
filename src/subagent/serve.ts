@@ -7,7 +7,7 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { execSync } from "node:child_process";
 import { loadConfig, saveConfig } from "../config/store.js";
-import { ollamaInstalled, ollamaInstallPlan, ensureServer, installedModels, run, freeDiskGb, totalRamGb } from "../setup/localllm.js";
+import { ollamaInstalled, ollamaInstallPlan, ensureServer, installedModels, run, freeDiskGb, totalRamGb, ollamaCmd } from "../setup/localllm.js";
 import { measureGpu, recommendBestModelGpu } from "./gpu.js";
 import { startProxy } from "./proxy.js";
 import { startTunnel } from "./tunnel.js";
@@ -131,7 +131,7 @@ export async function runServe(opts: ServeOptions): Promise<void> {
 
   if (!have.includes(modelId)) {
     console.log(c.cyan(`Pulling ${modelId}… (one-time)`));
-    if (!(await run("ollama", ["pull", modelId]))) {
+    if (!(await run(ollamaCmd(), ["pull", modelId]))) {
       console.log(c.red(`Failed to pull ${modelId}.`));
       return;
     }

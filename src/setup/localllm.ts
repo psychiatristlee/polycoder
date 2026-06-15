@@ -137,8 +137,25 @@ function which(cmd: string): boolean {
   }
 }
 
+/** Default per-user Ollama install path on Windows (PATH may not be refreshed yet). */
+function winOllamaPath(): string {
+  return process.env.LOCALAPPDATA ? `${process.env.LOCALAPPDATA}\\Programs\\Ollama\\ollama.exe` : "";
+}
+
+/** The ollama executable to invoke (PATH name, or the resolved Windows install path). */
+export function ollamaCmd(): string {
+  if (process.platform === "win32" && !which("ollama")) {
+    const p = winOllamaPath();
+    if (p && fs.existsSync(p)) return p;
+  }
+  return "ollama";
+}
+
 export function ollamaInstalled(): boolean {
-  return which("ollama");
+  if (which("ollama")) return true;
+  // On Windows the per-user install may not be on PATH in this process yet.
+  const p = winOllamaPath();
+  return !!p && fs.existsSync(p);
 }
 
 export function ollamaVersion(): string | null {
@@ -196,8 +213,22 @@ export function ollamaInstallPlan(): InstallInstructions {
     return { canAuto: true, command: { cmd: "sh", args: ["-c", "curl -fsSL https://ollama.com/install.sh | sh"] }, manual: "curl -fsSL https://ollama.com/install.sh | sh" };
   }
   if (platform === "win32") {
-    if (which("winget")) return { canAuto: true, command: { cmd: "winget", args: ["install", "-e", "--id", "Ollama.Ollama"] }, manual: "winget install Ollama.Ollama" };
-    return { canAuto: false, manual: "Download the installer from https://ollama.com/download" };
+    // Prefer the official per-user installer over winget: it needs no admin/UAC (winget's
+    // machine-scope path was throwing 0x8007029c assertion failures), runs silently, and
+    // auto-starts the Ollama service. Downloaded to %TEMP% then run /VERYSILENT.
+    const ps =
+      "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; " +
+      "$o=Join-Path $env:TEMP 'OllamaSetup.exe'; " +
+      "Write-Host 'Downloading Ollama (~1GB)...'; " +
+      "Invoke-WebRequest -Uri 'https://ollama.com/download/OllamaSetup.exe' -OutFile $o; " +
+      "Write-Host 'Installing Ollama (silent, no admin)...'; " +
+      "Start-Process -FilePath $o -ArgumentList '/VERYSILENT','/NORESTART' -Wait; " +
+      "Write-Host 'Ollama install done.'";
+    return {
+      canAuto: true,
+      command: { cmd: "powershell", args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps] },
+      manual: "https://ollama.com/download/OllamaSetup.exe 를 받아 실행 (SmartScreen이 막으면 '추가 정보 → 실행'), 설치 후 앱 재시작",
+    };
   }
   return { canAuto: false, manual: "See https://ollama.com/download" };
 }

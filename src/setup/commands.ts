@@ -13,6 +13,7 @@ import {
   totalRamGb,
   recommendBestModel,
   run,
+  ollamaCmd,
   type ModelSuggestion,
 } from "./localllm.js";
 
@@ -147,7 +148,7 @@ async function setupLocal(opts: SetupOptions, config: ReturnType<typeof loadConf
   }
   if (!have.includes(modelId)) {
     console.log(c.cyan(`Downloading ${modelId}…`));
-    const ok = await run("ollama", ["pull", modelId]);
+    const ok = await run(ollamaCmd(), ["pull", modelId]);
     if (!ok) {
       console.log(c.yellow(`Could not pull ${modelId}. Run \`ollama pull ${modelId}\` manually.`));
       return;
@@ -233,7 +234,7 @@ export async function runUpdate(currentVersion: string, opts: UpdateOptions): Pr
     } else {
       for (const m of models) {
         console.log(c.cyan(`Updating ${m}…`));
-        await run("ollama", ["pull", m]);
+        await run(ollamaCmd(), ["pull", m]);
       }
     }
   }
