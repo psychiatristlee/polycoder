@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("poly", {
   readXlsx: (file) => ipcRenderer.invoke("read-xlsx", file),
   capture: (file) => ipcRenderer.invoke("capture", file),
   runAgent: (goal, cwd, attachments) => ipcRenderer.send("run-agent", { goal, cwd, attachments }),
+  stopAgent: () => ipcRenderer.send("stop-agent"),
   pickAttachments: () => ipcRenderer.invoke("pick-attachments"),
   attachmentKind: (p) => ipcRenderer.invoke("attachment-kind", p),
   saveBlob: (name, dataUrl) => ipcRenderer.invoke("save-blob", { name, dataUrl }),

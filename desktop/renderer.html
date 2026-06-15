@@ -130,6 +130,9 @@
   .cwrap textarea{flex:1;border:0;outline:none;resize:none;font:inherit;background:transparent;color:var(--fg);max-height:170px;padding:9px 0;line-height:1.5}
   .send{width:38px;height:38px;border-radius:12px;border:0;background:var(--accent);color:#fff;font-size:17px;flex-shrink:0;transition:background .12s}
   .send:hover{background:var(--accent2)} .send:disabled{background:#cdbfa9}
+  .stopbtn{width:38px;height:38px;border-radius:12px;border:1px solid var(--border2);background:var(--card);color:var(--accent2);font-size:13px;flex-shrink:0;transition:all .12s}
+  .stopbtn:hover{border-color:var(--accent);background:#fff}
+  .stopbtn[hidden]{display:none}
   .hint{max-width:720px;margin:8px auto 0;font-size:11px;color:var(--soft);text-align:center}
 
   /* model manager */
@@ -312,6 +315,7 @@
       <div class="cwrap" id="cwrap">
         <button class="attachbtn" id="attach" title="파일 첨부 (이미지·동영상·문서)">📎</button>
         <textarea id="goal" rows="1" placeholder="polyrun에게 메시지 보내기…  (예: 매출 차트를 SVG로 그려줘)"></textarea>
+        <button class="stopbtn" id="stop" title="현재 작업 중지" hidden>■</button>
         <button class="send" id="run" title="보내기">↑</button>
       </div>
       <div class="hint">poly 에이전트가 작업 폴더에서 파일을 읽고 쓰고 명령을 실행합니다 · 이미지·동영상·문서 첨부(📎/드래그/붙여넣기) · Shift+Enter 줄바꿈</div>
@@ -575,6 +579,7 @@ function run(){ const goal=ta.value.trim(); if(!goal && !attachments.length) ret
   startRun(goal,atts,label);
 }
 function startRun(goal,atts,label){ running=true; $("title").textContent=(label||"").slice(0,42);
+  $("stop").hidden=false;
   assistantStart(); busyOn(atts.length?"첨부 처리 중…":"작업 중…");
   window.poly.runAgent(goal,cwd,atts);
 }
@@ -583,6 +588,11 @@ function dequeue(){ if(!queue.length) return; const n=queue.shift();
   const p=chat.querySelector(".qpend"); if(p) p.remove();
   startRun(n.goal,n.atts,n.goal||(n.atts||[]).map(a=>a.name).join(", "));
 }
+function stopRun(){ window.poly.stopAgent(); queue=[]; running=false; busyOff();
+  $("stop").hidden=true; chat.querySelectorAll(".qpend").forEach(e=>e.remove());
+  status("■ 중지됨","info");
+}
+$("stop").onclick=stopRun;
 $("run").onclick=run;
 
 window.poly.onLog((s)=>{ if(!s) return;
@@ -617,6 +627,7 @@ window.poly.onEvent((e)=>{
     case "error": status("⚠ "+e.message,"err"); if(/api key|key set|poly login|로그인/i.test(e.message||"")){ refreshStatus().then(()=>{ if(!hasKey&&!hasLocal) openLogin(); }); } break;
     case "exit": busyOff(); running=false; refreshFiles(); snapshotCur(); persistConvs(); if(shotPath) setTimeout(()=>window.poly.capture(shotPath),1200);
       if(queue.length) setTimeout(dequeue,300);   // run the next queued message
+      else $("stop").hidden=true;
       break;
   }
 });

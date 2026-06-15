@@ -428,7 +428,22 @@ ipcMain.on("run-agent", async (e, { goal, cwd, attachments }) => {
     }
   });
   child.stderr.on("data", (d) => e.sender.send("agent-log", d.toString().trim()));
-  child.on("close", (code) => e.sender.send("agent-event", { type: "exit", code }));
+  child.on("close", (code) => {
+    if (agentChild === child) agentChild = null;
+    e.sender.send("agent-event", { type: "exit", code });
+  });
+  child.on("error", (err) => {
+    // a spawn failure must still unblock the UI (exit), or the composer stays "running"
+    e.sender.send("agent-log", "[실행 오류] " + err.message);
+    if (agentChild === child) agentChild = null;
+    e.sender.send("agent-event", { type: "exit", code: null });
+  });
+});
+
+// Stop the running agent (kills its whole tree).
+ipcMain.on("stop-agent", () => {
+  killChildTree(agentChild);
+  agentChild = null;
 });
 
 ipcMain.on("answer", (_e, text) => {
