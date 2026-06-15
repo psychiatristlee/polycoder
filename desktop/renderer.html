@@ -175,6 +175,8 @@
   .loginbtn:hover{border-color:var(--accent);background:#fff}
   .loginbtn.primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
   .loginbtn.primary:hover{background:var(--accent2)}
+  .loginbtn.open{margin-bottom:12px;border-color:var(--gold);color:#8a6d28;font-weight:600;background:rgba(169,134,63,.08)}
+  .loginbtn.open:hover{background:rgba(169,134,63,.16);border-color:var(--gold)}
   .loginlink{display:inline-block;margin-top:11px;font-size:12px;color:var(--gold);text-decoration:none}
   .loginlink:hover{text-decoration:underline}
   .logindiv{display:flex;align-items:center;gap:10px;color:var(--soft);font-size:11px;margin:16px 0 12px}
@@ -302,10 +304,10 @@
     <div class="logincard">
       <div class="loginbrand"><span class="mk"></span> polyrun</div>
       <div class="loginh">시작하려면 모델 연결이 필요해요</div>
-      <div class="loginsub">OpenRouter 키를 넣거나, 무료 로컬 LLM을 설치하세요. 키는 이 컴퓨터에만 저장됩니다.</div>
-      <input id="loginkey" type="password" placeholder="OpenRouter API 키 (sk-or-...)" autocomplete="off" />
+      <div class="loginsub">① OpenRouter를 열어 로그인하고 키를 복사한 뒤 ② 아래에 붙여넣으세요. 키는 이 컴퓨터에만 저장됩니다.</div>
+      <button class="loginbtn open" id="getkey">🔗 OpenRouter 열어 키 받기 ↗</button>
+      <input id="loginkey" type="password" placeholder="② 받은 키 붙여넣기 (sk-or-...)" autocomplete="off" />
       <button class="loginbtn primary" id="loginsave">키 저장하고 시작</button>
-      <a class="loginlink" id="getkey" href="#">OpenRouter 키 발급받기 ↗</a>
       <div class="logindiv"><span>또는</span></div>
       <button class="loginbtn" id="loginlocal">로컬 LLM 설치 (무료 · 키 불필요)</button>
       <div class="loginmsg" id="loginmsg"></div>
