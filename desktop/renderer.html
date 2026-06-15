@@ -131,7 +131,8 @@
   .modelpane{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
   .modelpane[hidden]{display:none}
   .modelwrap{flex:1;overflow:auto;padding:22px 26px}
-  .modelnote{font-size:12.5px;color:var(--mut);max-width:760px;margin:0 auto 14px}
+  .modelnote{font-size:12.5px;color:var(--mut);max-width:760px;margin:0 auto 14px;line-height:1.6}
+  .modelgroup{max-width:760px;margin:18px auto 8px;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--soft);font-weight:700}
   .modelrow{display:flex;align-items:center;gap:14px;max-width:760px;margin:0 auto 10px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:13px 16px;box-shadow:var(--shadow)}
   .modelrow.on{border-left:3px solid var(--gold)}
   .modelrow .mi{flex:1;min-width:0}
@@ -261,9 +262,8 @@
         <div class="fbpath" id="folder">클릭해서 폴더 열기</div>
       </div>
     </div>
-    <button class="sbtn" id="local"><span class="ic">⬇</span> 로컬 LLM 설치</button>
     <button class="sbtn" id="navchat"><span class="ic">💬</span> 채팅</button>
-    <button class="sbtn" id="navmodel"><span class="ic">🧠</span> 모델</button>
+    <button class="sbtn" id="navmodel"><span class="ic">🧠</span> 로컬 모델 (설치·관리)</button>
     <button class="sbtn" id="navsup"><span class="ic">🔭</span> 슈퍼비전 모드</button>
     <div class="seclabel convhead">대화 기록 <button class="newconv" id="newconv" title="새 대화 시작">＋</button></div>
     <div class="convs" id="convs"></div>
@@ -417,7 +417,7 @@ $("loginsave").onclick=async()=>{ const k=$("loginkey").value.trim();
   if(ok){ $("loginkey").value=""; $("loginmsg").textContent=""; await refreshStatus(); if(hasKey) $("loginmask").hidden=true; }
   else $("loginmsg").textContent="저장 실패. 다시 시도해 주세요."; };
 $("loginkey").addEventListener("keydown",(e)=>{ if(e.key==="Enter") $("loginsave").click(); });
-$("loginlocal").onclick=()=>{ $("loginmask").hidden=true; beginInstall("🧠 로컬 LLM 설치 (Ollama + 최적 모델)", ()=>window.poly.setupLocal()); };
+$("loginlocal").onclick=()=>{ $("loginmask").hidden=true; showView("model"); };
 $("getkey").onclick=(e)=>{ e.preventDefault(); window.poly.openExternal("https://openrouter.ai/keys"); };
 // Clicking the key/local chips reopens the login screen.
 document.querySelector(".chips")?.addEventListener("click",()=>{ if(!hasKey && !hasLocal) openLogin(); });
@@ -487,7 +487,6 @@ $("pvclose").onclick=()=>{ $("preview").hidden=true; };
 /* ---- onboarding + run ---- */
 $("savekey").onclick=async()=>{const k=$("key").value.trim();if(!k)return;await window.poly.saveKey(k);$("key").value="";assistantStart();status("✓ OpenRouter 키 저장됨","ok");refreshStatus();};
 $("pick").onclick=async()=>{const p=await window.poly.pickFolder();if(p)setCwd(p);};
-$("local").onclick=()=>beginInstall("🧠 로컬 LLM 설치 (Ollama + 최적 모델)", ()=>window.poly.setupLocal());
 
 const ta=$("goal");
 ta.addEventListener("input",()=>{ta.style.height="auto";ta.style.height=Math.min(ta.scrollHeight,170)+"px";});
@@ -601,18 +600,33 @@ $("navmodel").onclick=()=>showView("model");
 $("sup-agent").addEventListener("change",()=>{ $("sup-cmd").hidden = $("sup-agent").value!=="cmd"; });
 
 /* ---- model manager: download several local models; poly auto-switches per task ---- */
+const ROLE_LABEL={coding:"💻 코딩",reasoning:"🧩 추론",general:"💬 범용",vision:"👁 비전"};
+const ROLE_ORDER=["coding","reasoning","general","vision"];
 async function loadModels(){
   const box=$("modellist"); box.innerHTML='<div class="modelnote">불러오는 중…</div>';
   const cat=await window.poly.localCatalog();
-  if(!cat){ box.innerHTML='<div class="modelnote">로컬 런타임(Ollama)이 아직 없어요. 아무 모델이나 <b>설치</b>하면 자동으로 Ollama까지 깔립니다. (또는 OpenRouter 키로 클라우드 모델 사용)</div>'+
-    '<div class="modelrow"><div class="mi"><div class="ml">Qwen2.5 Coder 7B</div><div class="mn">solid coder · ~4.7GB</div></div><div class="ma"></div></div>';
-    // still let them install from a default list
-    const def=[{id:"qwen2.5-coder:7b",label:"Qwen2.5 Coder 7B",note:"균형형 코더",sizeGb:4.7},{id:"qwen2.5-coder:3b",label:"Qwen2.5 Coder 3B",note:"가벼움",sizeGb:2},{id:"llama3.2:3b",label:"Llama 3.2 3B",note:"빠른 범용",sizeGb:2}];
-    box.innerHTML='<div class="modelnote">로컬 런타임(Ollama)이 아직 없어요. 모델을 <b>설치</b>하면 자동으로 Ollama까지 설치됩니다. (또는 OpenRouter 키로 클라우드 모델)</div>';
-    def.forEach(m=>box.appendChild(modelRowEl({...m,fits:true,installed:false}))); return;
+  if(!cat){
+    box.innerHTML='<div class="modelnote">로컬 런타임(Ollama)이 아직 없어요. 아래에서 모델을 <b>설치</b>하면 Ollama까지 자동으로 깔립니다. (또는 OpenRouter 키로 클라우드 모델 사용)</div>';
+    const def=[
+      {id:"qwen2.5-coder:7b",label:"Qwen2.5 Coder 7B",note:"균형형 코더",sizeGb:4.7,role:"coding"},
+      {id:"qwen2.5-coder:14b",label:"Qwen2.5 Coder 14B",note:"강력한 코더",sizeGb:9,role:"coding"},
+      {id:"deepseek-r1:8b",label:"DeepSeek-R1 8B",note:"추론",sizeGb:4.9,role:"reasoning"},
+      {id:"llama3.1:8b",label:"Llama 3.1 8B",note:"범용",sizeGb:4.7,role:"general"},
+      {id:"llava:7b",label:"LLaVA 7B",note:"이미지 이해",sizeGb:4.7,role:"vision"},
+    ];
+    renderModelGroups(box, def.map(m=>({...m,fits:true,installed:false}))); return;
   }
-  box.innerHTML='<div class="modelnote">이 머신: RAM '+cat.ramGb+'GB · 여유 디스크 '+cat.freeDiskGb+'GB · 로컬 라우팅 '+(cat.enabled?'<b>켜짐</b>':'꺼짐')+' · 받아둔 모델 중에서 poly가 작업·비용에 맞춰 자동 선택합니다.</div>';
-  cat.models.forEach(m=>box.appendChild(modelRowEl(m)));
+  const n=cat.models.filter(m=>m.installed).length;
+  box.innerHTML='<div class="modelnote">이 머신: RAM '+cat.ramGb+'GB · 여유 디스크 '+cat.freeDiskGb+'GB · 설치됨 '+n+'개 · 로컬 라우팅 '+(cat.enabled?'<b>켜짐</b>':'꺼짐')+'<br>여러 개 받아두면 poly가 작업(코딩·추론·범용)과 비용에 맞춰 <b>자동으로 골라 씁니다</b>.</div>';
+  renderModelGroups(box, cat.models);
+}
+function renderModelGroups(box, models){
+  for(const role of ROLE_ORDER){
+    const group=models.filter(m=>(m.role||"general")===role);
+    if(!group.length) continue;
+    const h=document.createElement("div"); h.className="modelgroup"; h.textContent=ROLE_LABEL[role]||role; box.appendChild(h);
+    group.forEach(m=>box.appendChild(modelRowEl(m)));
+  }
 }
 function modelRowEl(m){
   const row=document.createElement("div"); row.className="modelrow"+(m.installed?" on":"");
