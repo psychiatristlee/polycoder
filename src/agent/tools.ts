@@ -133,23 +133,49 @@ export const READONLY_TOOL_SCHEMAS: ToolSchema[] = TOOL_SCHEMAS.filter((t) =>
  *   {"name": "write_file", "arguments": {"path": "...", "content": "..."}}
  * Parse that into a synthetic ToolCall so the agent still acts on it.
  */
+// Local/quantized models frequently emit *almost*-valid JSON when they narrate a tool call
+// as text — most commonly literal newlines/tabs inside a string value (e.g. multi-line file
+// content for write_file), which JSON forbids. Escape control chars inside string literals and
+// drop trailing commas so JSON.parse can recover. String/escape-aware so we don't touch
+// structural characters or already-escaped sequences.
+export function repairJson(s: string): string {
+  let out = "";
+  let inStr = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (ch === "\\") { out += ch + (s[i + 1] ?? ""); i++; continue; } // keep escape pairs intact
+      if (ch === '"') { inStr = false; out += ch; continue; }
+      if (ch === "\n") { out += "\\n"; continue; }
+      if (ch === "\r") { out += "\\r"; continue; }
+      if (ch === "\t") { out += "\\t"; continue; }
+      out += ch;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    out += ch;
+  }
+  return out.replace(/,(\s*[}\]])/g, "$1"); // trailing commas before } or ]
+}
+
 export function parseTextToolCall(content: string): ToolCall | null {
   if (!content) return null;
   const json = extractJson(content);
   if (!json) return null;
+  let obj: any;
   try {
-    const obj = JSON.parse(json) as any;
-    const name = obj?.name ?? obj?.tool ?? obj?.function?.name;
-    if (typeof name !== "string" || !KNOWN_TOOLS.has(name)) return null;
-    const args = obj.arguments ?? obj.parameters ?? obj.function?.arguments ?? {};
-    return {
-      id: `textcall_${name}`,
-      type: "function",
-      function: { name, arguments: typeof args === "string" ? args : JSON.stringify(args) },
-    };
+    obj = JSON.parse(json);
   } catch {
-    return null;
+    try { obj = JSON.parse(repairJson(json)); } catch { return null; } // recover common LLM JSON typos
   }
+  const name = obj?.name ?? obj?.tool ?? obj?.function?.name;
+  if (typeof name !== "string" || !KNOWN_TOOLS.has(name)) return null;
+  const args = obj.arguments ?? obj.parameters ?? obj.function?.arguments ?? {};
+  return {
+    id: `textcall_${name}`,
+    type: "function",
+    function: { name, arguments: typeof args === "string" ? args : JSON.stringify(args) },
+  };
 }
 
 export interface ToolContext {
