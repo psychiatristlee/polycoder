@@ -139,6 +139,11 @@
   .modelnote{font-size:12.5px;color:var(--mut);max-width:760px;margin:0 auto 14px;line-height:1.6}
   .modelgroup{max-width:760px;margin:14px auto 8px;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--soft);font-weight:700}
   .modelsection{max-width:760px;margin:22px auto 10px;font-family:Georgia,serif;font-size:16px;color:var(--accent);font-weight:700;border-bottom:1px solid var(--border);padding-bottom:6px}
+  .runtimebox{max-width:760px;margin:4px auto 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .runtimebox .rtlabel{font-size:12px;color:var(--mut);font-weight:600}
+  .runtimebox select,.runtimebox input{padding:7px 10px;border-radius:9px;border:1px solid var(--border2);background:var(--card);color:var(--fg);font:inherit;font-size:12.5px;outline:none}
+  .runtimebox input{flex:1;min-width:160px}
+  .runtimebox select:focus,.runtimebox input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(110,36,54,.08)}
   .cloudfilter{display:block;max-width:760px;margin:6px auto 12px;width:100%;padding:9px 13px;border-radius:10px;border:1px solid var(--border2);background:var(--card);color:var(--fg);font:inherit;font-size:13px;outline:none}
   .cloudfilter:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(110,36,54,.08)}
   .cloudprov{max-width:760px;margin:12px auto 5px;font-size:11px;color:var(--soft);font-weight:700;text-transform:capitalize}
@@ -648,31 +653,62 @@ $("sup-agent").addEventListener("change",()=>{ $("sup-cmd").hidden = $("sup-agen
 /* ---- model manager: download several local models; poly auto-switches per task ---- */
 const ROLE_LABEL={coding:"💻 코딩",reasoning:"🧩 추론",general:"💬 범용",vision:"👁 비전"};
 const ROLE_ORDER=["coding","reasoning","general","vision"];
+const RUNTIME_PRESETS={ollama:"http://localhost:11434/v1",lmstudio:"http://localhost:1234/v1",llamacpp:"http://localhost:8080/v1"};
 async function loadModels(){
   const box=$("modellist"); box.innerHTML='<div class="modelnote">불러오는 중…</div>';
-  const cat=await window.poly.localCatalog();
+  const st=await window.poly.status();
+  const baseUrl=(st&&st.baseUrl)||"http://localhost:11434/v1";
+  const isOllama=/:11434(\/|$)/.test(baseUrl);
   box.innerHTML="";
   const sec=(t)=>{ const d=document.createElement("div"); d.className="modelsection"; d.textContent=t; box.appendChild(d); };
   const note=(html)=>{ const d=document.createElement("div"); d.className="modelnote"; d.innerHTML=html; box.appendChild(d); };
-  // ── Local (Ollama) ──
-  sec("🖥 로컬 (Ollama · 다운로드해서 사용)");
-  if(!cat){
-    note("로컬 런타임(Ollama)이 아직 없어요. 아래에서 모델을 <b>설치</b>하면 Ollama까지 자동으로 깔립니다.");
-    const def=[
-      {id:"qwen2.5-coder:7b",label:"Qwen2.5 Coder 7B",note:"균형형 코더",sizeGb:4.7,role:"coding"},
-      {id:"qwen2.5-coder:14b",label:"Qwen2.5 Coder 14B",note:"강력한 코더",sizeGb:9,role:"coding"},
-      {id:"deepseek-r1:8b",label:"DeepSeek-R1 8B",note:"추론",sizeGb:4.9,role:"reasoning"},
-      {id:"llama3.1:8b",label:"Llama 3.1 8B",note:"범용",sizeGb:4.7,role:"general"},
-      {id:"llava:7b",label:"LLaVA 7B",note:"이미지 이해",sizeGb:4.7,role:"vision"},
-    ];
-    renderModelGroups(box, def.map(m=>({...m,fits:true,installed:false})));
+  // ── Local runtime ──
+  sec("🖥 로컬 모델");
+  renderLocalRuntime(box, baseUrl, isOllama);
+  if(isOllama){
+    const cat=await window.poly.localCatalog();
+    if(!cat){
+      note("로컬 런타임(Ollama)이 아직 없어요. 아래에서 모델을 <b>설치</b>하면 Ollama까지 자동으로 깔립니다.");
+      const def=[
+        {id:"qwen2.5-coder:7b",label:"Qwen2.5 Coder 7B",note:"균형형 코더",sizeGb:4.7,role:"coding"},
+        {id:"qwen2.5-coder:14b",label:"Qwen2.5 Coder 14B",note:"강력한 코더",sizeGb:9,role:"coding"},
+        {id:"deepseek-r1:8b",label:"DeepSeek-R1 8B",note:"추론",sizeGb:4.9,role:"reasoning"},
+        {id:"llama3.1:8b",label:"Llama 3.1 8B",note:"범용",sizeGb:4.7,role:"general"},
+        {id:"llava:7b",label:"LLaVA 7B",note:"이미지 이해",sizeGb:4.7,role:"vision"},
+      ];
+      renderModelGroups(box, def.map(m=>({...m,fits:true,installed:false})));
+    } else {
+      const n=cat.models.filter(m=>m.installed).length;
+      note("이 머신: RAM "+cat.ramGb+"GB · 여유 디스크 "+cat.freeDiskGb+"GB · 설치됨 "+n+"개 · 로컬 라우팅 "+(cat.enabled?"<b>켜짐</b>":"꺼짐")+"<br>여러 개 받아두면 poly가 작업(코딩·추론·범용)과 비용에 맞춰 <b>자동으로 골라 씁니다</b>.");
+      renderModelGroups(box, cat.models);
+    }
   } else {
-    const n=cat.models.filter(m=>m.installed).length;
-    note("이 머신: RAM "+cat.ramGb+"GB · 여유 디스크 "+cat.freeDiskGb+"GB · 설치됨 "+n+"개 · 로컬 라우팅 "+(cat.enabled?"<b>켜짐</b>":"꺼짐")+"<br>여러 개 받아두면 poly가 작업(코딩·추론·범용)과 비용에 맞춰 <b>자동으로 골라 씁니다</b>.");
-    renderModelGroups(box, cat.models);
+    // Non-Ollama runtime (LM Studio / llama.cpp / …): show the models that server exposes.
+    note("로컬 서버: <b>"+esc(baseUrl)+"</b> · 이 런타임(LM Studio·llama.cpp 등)에서 모델을 로드하면 poly가 자동으로 씁니다. (다운로드는 해당 앱에서)");
+    const cloud=await window.poly.cloudCatalog();
+    const locals=((cloud&&cloud.models)||[]).filter(m=>m.local);
+    if(!locals.length){ note("이 서버에서 노출된 모델이 없어요. 해당 앱에서 모델을 로드(서버 시작)한 뒤 새로고침하세요."); }
+    else { const lb=document.createElement("div"); locals.forEach(m=>lb.appendChild(cloudRow(m,true))); box.appendChild(lb); }
   }
   // ── Cloud (OpenRouter) ──
   await appendCloud(box);
+}
+function renderLocalRuntime(box, baseUrl, isOllama){
+  const wrap=document.createElement("div"); wrap.className="runtimebox";
+  const lbl=document.createElement("span"); lbl.className="rtlabel"; lbl.textContent="로컬 서버(런타임)";
+  const sel=document.createElement("select");
+  [["ollama","Ollama (11434)"],["lmstudio","LM Studio (1234)"],["llamacpp","llama.cpp (8080)"],["custom","직접 입력"]].forEach(([v,t])=>{ const o=document.createElement("option"); o.value=v; o.textContent=t; sel.appendChild(o); });
+  const inp=document.createElement("input"); inp.value=baseUrl; inp.placeholder="http://localhost:1234/v1";
+  // pick the matching preset
+  const cur=Object.entries(RUNTIME_PRESETS).find(([k,u])=>baseUrl.replace(/\/$/,"")===u.replace(/\/$/,""));
+  sel.value=cur?cur[0]:"custom";
+  sel.onchange=()=>{ if(sel.value!=="custom"){ inp.value=RUNTIME_PRESETS[sel.value]; } inp.focus(); };
+  const btn=document.createElement("button"); btn.className="mbtn primary"; btn.textContent="적용";
+  btn.onclick=async()=>{ btn.disabled=true; btn.textContent="적용 중…"; await window.poly.setLocalUrl(inp.value.trim()); await refreshStatus(); loadModels(); };
+  wrap.appendChild(lbl); wrap.appendChild(sel); wrap.appendChild(inp); wrap.appendChild(btn); box.appendChild(wrap);
+  const hint=document.createElement("div"); hint.className="modelnote"; hint.style.marginTop="6px";
+  hint.innerHTML="다른 런타임을 쓰려면 그 앱에서 <b>OpenAI 호환 서버</b>를 켜고(LM Studio: Local Server▶Start · llama.cpp: <code>llama-server --port 8080</code>) 위 주소를 맞춘 뒤 <b>적용</b>하세요.";
+  box.appendChild(hint);
 }
 async function appendCloud(box){
   const sec=document.createElement("div"); sec.className="modelsection"; sec.textContent="☁️ 클라우드 (OpenRouter · 키만 있으면 바로)"; box.appendChild(sec);

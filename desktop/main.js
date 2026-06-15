@@ -229,13 +229,27 @@ function configStatus() {
   try {
     const p = path.join(os.homedir(), ".config", "polymath", "config.json");
     const c = JSON.parse(fs.readFileSync(p, "utf8"));
-    return { hasKey: !!c.openrouterApiKey || !!process.env.OPENROUTER_API_KEY, local: !!(c.local && c.local.enabled) };
+    return {
+      hasKey: !!c.openrouterApiKey || !!process.env.OPENROUTER_API_KEY,
+      local: !!(c.local && c.local.enabled),
+      baseUrl: (c.local && c.local.baseUrl) || "http://localhost:11434/v1",
+    };
   } catch {
-    return { hasKey: !!process.env.OPENROUTER_API_KEY, local: false };
+    return { hasKey: !!process.env.OPENROUTER_API_KEY, local: false, baseUrl: "http://localhost:11434/v1" };
   }
 }
 
 ipcMain.handle("status", () => configStatus());
+// Point poly at an OpenAI-compatible local runtime (Ollama / LM Studio / llama.cpp / …).
+ipcMain.handle("set-local-url", (_e, url) =>
+  new Promise((resolve) => {
+    const u = String(url || "").trim();
+    const args = u ? ["config", "local", "on", "--base", u] : ["config", "local", "off"];
+    const child = spawnPoly(args);
+    child.on("close", (code) => resolve(code === 0));
+    child.on("error", () => resolve(false));
+  })
+);
 ipcMain.handle("pick-folder", async () => {
   const r = await dialog.showOpenDialog(win, { properties: ["openDirectory", "createDirectory"] });
   return r.canceled ? null : r.filePaths[0];
