@@ -4,6 +4,7 @@
 import { execSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 
 export interface ModelSuggestion {
   id: string;
@@ -156,6 +157,45 @@ export function ollamaInstalled(): boolean {
   // On Windows the per-user install may not be on PATH in this process yet.
   const p = winOllamaPath();
   return !!p && fs.existsSync(p);
+}
+
+/**
+ * Windows + a non-ASCII (e.g. Korean) username breaks Ollama: llama-server can't open
+ * model files under `C:\Users\<한글>\.ollama\...` (the path is mojibake'd), failing with
+ * "error loading model". Fix it by relocating the model store to an ASCII path via
+ * OLLAMA_MODELS — set for THIS process (so poly-spawned ollama uses it) and persisted with
+ * setx (so the tray app picks it up after a restart). Returns the new dir, or null if no
+ * issue / not applicable.
+ */
+export function fixWindowsModelsPath(): { dir: string; restartNeeded: boolean } | null {
+  if (process.platform !== "win32") return null;
+  const home = process.env.USERPROFILE || os.homedir();
+  if (/^[\x00-\x7F]*$/.test(home)) return null; // ASCII home → no issue
+  const dir = path.join(process.env.PUBLIC || "C:\\Users\\Public", ".ollama", "models");
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch {
+    /* ignore */
+  }
+  const already = process.env.OLLAMA_MODELS === dir;
+  process.env.OLLAMA_MODELS = dir;
+  try {
+    execSync(`setx OLLAMA_MODELS "${dir}"`, { stdio: "ignore" });
+  } catch {
+    /* best-effort persistence */
+  }
+  return { dir, restartNeeded: !already };
+}
+
+/** Best-effort restart of the Ollama server so it picks up new env (e.g. OLLAMA_MODELS). */
+export async function restartOllama(baseUrl = "http://localhost:11434"): Promise<boolean> {
+  try {
+    if (process.platform === "win32") execSync("taskkill /f /im ollama.exe", { stdio: "ignore" });
+    else execSync("pkill -x ollama || pkill ollama", { stdio: "ignore" });
+  } catch {
+    /* may not be running */
+  }
+  return ensureServer(baseUrl);
 }
 
 export function ollamaVersion(): string | null {

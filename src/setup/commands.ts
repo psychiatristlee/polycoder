@@ -5,6 +5,7 @@ import { confirm, select } from "../util/prompt.js";
 import { c } from "../util/format.js";
 import {
   ollamaInstalled,
+  ollamaServerUp,
   ollamaVersion,
   ollamaInstallPlan,
   ensureServer,
@@ -14,6 +15,7 @@ import {
   recommendBestModel,
   run,
   ollamaCmd,
+  fixWindowsModelsPath,
   type ModelSuggestion,
 } from "./localllm.js";
 
@@ -89,8 +91,14 @@ export async function runSetup(opts: SetupOptions): Promise<void> {
 }
 
 async function setupLocal(opts: SetupOptions, config: ReturnType<typeof loadConfig>): Promise<void> {
-  // a) Ollama runtime.
-  if (!ollamaInstalled()) {
+  // Windows + non-ASCII username: relocate the model store to an ASCII path up front so
+  // llama-server can actually load the models we're about to pull.
+  const wfix = fixWindowsModelsPath();
+  if (wfix) console.log(c.yellow(`⚠ 한글 사용자명 경로 감지 — 모델 저장 경로를 ${wfix.dir} 로 설정했습니다 (Ollama 실행 중이었다면 재시작 권장).`));
+
+  // a) Ollama runtime. HTTP check is definitive even when PATH is stale (Windows).
+  const present = ollamaInstalled() || (await ollamaServerUp(config.local.baseUrl));
+  if (!present) {
     const plan = ollamaInstallPlan();
     console.log(c.cyan("Local LLM runtime: Ollama is not installed."));
     if (plan.canAuto && plan.command) {
@@ -108,8 +116,8 @@ async function setupLocal(opts: SetupOptions, config: ReturnType<typeof loadConf
     console.log(c.green("✓ Ollama present ") + c.dim(ollamaVersion() ?? ""));
   }
 
-  if (!ollamaInstalled()) {
-    console.log(c.yellow("Ollama still not on PATH — re-run `poly setup --local` after installing."));
+  if (!ollamaInstalled() && !(await ollamaServerUp(config.local.baseUrl))) {
+    console.log(c.yellow("Ollama still not detected — re-run after installing (or restart the app to refresh PATH)."));
     return;
   }
 

@@ -11,6 +11,7 @@ import { planRequest, heuristicPlan, classifyGoalType } from "../planner/planner
 import type { Plan, PlannedStep } from "../planner/tasks.js";
 import { TOOL_SCHEMAS, executeTool, parseTextToolCall, type ToolContext, type ToolOutcome } from "./tools.js";
 import { verifyGoal, type Verdict } from "./verify.js";
+import { diagnose, remediate } from "./heal.js";
 import { scoreQuality, scoreDesignVision } from "./quality.js";
 import { renderScreenshot, pngDataUrl } from "./render.js";
 import { listSkills, saveSkill, type Skill } from "../skills/store.js";
@@ -534,20 +535,45 @@ async function runToolLoop(
     iterations = 0;
   let summary = "";
   let finishedBy: StepRunRow["finishedBy"] = "max-iters";
+  let healUsed = 0;
+  const MAX_HEAL = 3;
+
+  // One streamed model turn, with self-heal: on failure, diagnose the cause and (if it's
+  // auto-fixable) remediate + retry the SAME turn, emitting why+fix so the user sees it.
+  const streamTurn = async (): Promise<CompletionResult> => {
+    while (true) {
+      try {
+        const gen = deps.client.stream(
+          { model: model.id, messages, tools: useTools ? TOOL_SCHEMAS : undefined, temperature: 0.2, maxTokens: rungDef.maxTokens },
+          model.pricing
+        );
+        let next = await gen.next();
+        while (!next.done) {
+          emit({ type: "text", delta: next.value });
+          next = await gen.next();
+        }
+        return next.value;
+      } catch (err: any) {
+        const d = diagnose(err?.message ?? String(err), model.id);
+        if (d && d.retryable && d.action && healUsed < MAX_HEAL) {
+          healUsed++;
+          emit({ type: "error", message: `⚠ 원인: ${d.cause} → 자동 수정 중: ${d.fix}…` });
+          const fixed = await remediate(d);
+          if (fixed) {
+            emit({ type: "error", message: `✓ 수정 적용 — 재시도합니다 (${healUsed}/${MAX_HEAL}).` });
+            continue; // retry the turn
+          }
+          emit({ type: "error", message: `자동 수정 실패 — ${d.fix}` });
+        }
+        throw err; // not auto-fixable (or out of budget) → outer catch enriches + records
+      }
+    }
+  };
 
   try {
     for (let iter = 0; iter < rungDef.maxIters; iter++) {
       iterations = iter + 1;
-      const gen = deps.client.stream(
-        { model: model.id, messages, tools: useTools ? TOOL_SCHEMAS : undefined, temperature: 0.2, maxTokens: rungDef.maxTokens },
-        model.pricing
-      );
-      let next = await gen.next();
-      while (!next.done) {
-        emit({ type: "text", delta: next.value });
-        next = await gen.next();
-      }
-      const result = next.value;
+      const result = await streamTurn();
       const entry = logUsage(result, taskTypeForLog);
       prompt += entry.promptTokens;
       completion += entry.completionTokens;
@@ -606,7 +632,13 @@ async function runToolLoop(
     }
   } catch (err: any) {
     finishedBy = "error";
-    emit({ type: "error", message: `${taskTypeForLog} failed: ${err?.message ?? err}` });
+    const d = diagnose(err?.message ?? String(err), model.id);
+    emit({
+      type: "error",
+      message: d
+        ? `${taskTypeForLog} 실패 — 원인: ${d.cause} · 해결: ${d.fix}`
+        : `${taskTypeForLog} failed: ${err?.message ?? err}`,
+    });
   }
 
   return {

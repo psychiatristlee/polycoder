@@ -33,7 +33,7 @@ import type { RoutingObjective, RoutingPolicy } from "./router/policy.js";
 import { blendedPrice } from "./router/policy.js";
 import { table, usd, perMTok, tierColor, c } from "./util/format.js";
 import { runSetup, runUpdate } from "./setup/commands.js";
-import { LOCAL_MODEL_CATALOG, installedModels, totalRamGb, freeDiskGb, ensureServer, ollamaInstalled, ollamaInstallPlan, run as runCmd, ollamaCmd } from "./setup/localllm.js";
+import { LOCAL_MODEL_CATALOG, installedModels, totalRamGb, freeDiskGb, ensureServer, ollamaInstalled, ollamaServerUp, ollamaInstallPlan, run as runCmd, ollamaCmd, fixWindowsModelsPath } from "./setup/localllm.js";
 import { registerSubagentCommands } from "./subagent/commands.js";
 import App from "./tui/App.tsx";
 
@@ -1043,16 +1043,22 @@ localCmd
   .argument("<id>", "model id, e.g. qwen2.5-coder:7b")
   .option("-y, --yes", "auto-install Ollama if missing", false)
   .action(async (id: string, opts) => {
-    if (!ollamaInstalled()) {
+    const wfix = fixWindowsModelsPath();
+    if (wfix) console.log(c.yellow(`⚠ 한글 경로 감지 — 모델 저장 경로를 ${wfix.dir} 로 설정했습니다.`));
+    // Already installed/running? (HTTP check is definitive even when PATH is stale on Windows.)
+    const present = ollamaInstalled() || (await ollamaServerUp());
+    if (!present) {
       const plan = ollamaInstallPlan();
       if (plan.canAuto && plan.command && opts.yes) {
         console.log(c.cyan("Installing Ollama…"));
         await runCmd(plan.command.cmd, plan.command.args);
       }
-      if (!ollamaInstalled()) {
+      if (!ollamaInstalled() && !(await ollamaServerUp())) {
         console.log(c.yellow("Ollama not installed. " + plan.manual));
         process.exit(1);
       }
+    } else {
+      console.log(c.dim("Ollama already installed — skipping install."));
     }
     await ensureServer();
     console.log(c.cyan(`Pulling ${id}…`));
