@@ -299,6 +299,10 @@
   .pvbody .md code{background:var(--code);padding:1px 6px;border-radius:5px;font-family:ui-monospace,Menlo,monospace;font-size:13px}
   .pvbody .md pre code{background:none;padding:0}
   .pvbody .md blockquote{border-left:3px solid var(--accent);padding:3px 0 3px 14px;color:#6a6258;margin:1em 0}
+  .pvbody .md li.task{list-style:none;margin-left:-1.4em}
+  .pvbody .md li.task input{margin-right:7px;vertical-align:-1px}
+  .pvbody .md del{color:#9a8f80}
+  .pvbody .md ul ul,.pvbody .md ol ol,.pvbody .md ul ol,.pvbody .md ol ul{margin:.2em 0}
   .pvbody table.grid{border-collapse:collapse;margin:0;font-size:13.5px;width:100%}
   .pvbody table.grid td,.pvbody table.grid th{border:1px solid var(--border);padding:7px 13px;text-align:left}
   .pvbody table.grid th,.pvbody table.grid tr:first-child td{background:var(--code);color:var(--accent2);font-weight:600}
@@ -572,12 +576,25 @@ function renderFolders(){ const box=$("folders"); if(!box) return; box.innerHTML
 /* ---- markdown ---- */
 function mdToHtml(md){
   const lines=md.replace(/\r/g,"").split("\n"); let out=[],i=0;
-  const inline=(t)=>esc(t).replace(/`([^`]+)`/g,(_,c)=>"<code>"+c+"</code>").replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>").replace(/\*([^*]+)\*/g,"<em>$1</em>").replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2">$1</a>');
+  const inline=(t)=>esc(t)
+    .replace(/`([^`]+)`/g,(_,c)=>"<code>"+c+"</code>")
+    .replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>")
+    .replace(/~~([^~]+)~~/g,"<del>$1</del>")
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g,'<img alt="$1" src="$2" style="max-width:100%;border-radius:8px">')   // image before link
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2">$1</a>')
+    .replace(/\*([^*]+)\*/g,"<em>$1</em>")
+    .replace(/(^|[^_])_([^_]+)_(?!_)/g,"$1<em>$2</em>");
   while(i<lines.length){ let l=lines[i];
     if(/^```/.test(l)){const buf=[];i++;while(i<lines.length&&!/^```/.test(lines[i])){buf.push(lines[i]);i++;}i++;out.push("<pre><code>"+esc(buf.join("\n"))+"</code></pre>");continue;}
     let h=l.match(/^(#{1,6})\s+(.*)/); if(h){out.push("<h"+h[1].length+">"+inline(h[2])+"</h"+h[1].length+">");i++;continue;}
-    if(/^(\s*[-*]\s+)/.test(l)){const it=[];while(i<lines.length&&/^(\s*[-*]\s+)/.test(lines[i])){it.push("<li>"+inline(lines[i].replace(/^\s*[-*]\s+/,""))+"</li>");i++;}out.push("<ul>"+it.join("")+"</ul>");continue;}
-    if(/^\s*\d+\.\s+/.test(l)){const it=[];while(i<lines.length&&/^\s*\d+\.\s+/.test(lines[i])){it.push("<li>"+inline(lines[i].replace(/^\s*\d+\.\s+/,""))+"</li>");i++;}out.push("<ol>"+it.join("")+"</ol>");continue;}
+    if(/^\s*([-*+]|\d+\.)\s+/.test(l)){ const items=[];
+      while(i<lines.length&&/^\s*([-*+]|\d+\.)\s+/.test(lines[i])){ const ln=lines[i];
+        const indent=ln.match(/^\s*/)[0].replace(/\t/g,"  ").length;
+        const ordered=/^\s*\d+\.\s+/.test(ln);
+        let text=ln.replace(/^\s*([-*+]|\d+\.)\s+/,""); let task=null;
+        const tm=text.match(/^\[([ xX])\]\s+(.*)/); if(tm){ task=tm[1].toLowerCase()==="x"; text=tm[2]; }
+        items.push({indent,ordered,task,text}); i++; }
+      out.push(buildNestedList(items,inline)); continue; }
     if(/^\s*(---|\*\*\*)\s*$/.test(l)){out.push("<hr>");i++;continue;}
     if(/^\s*>\s?/.test(l)){const buf=[];while(i<lines.length&&/^\s*>\s?/.test(lines[i])){buf.push(lines[i].replace(/^\s*>\s?/,""));i++;}out.push("<blockquote>"+inline(buf.join(" "))+"</blockquote>");continue;}
     if(/^\s*\|.*\|\s*$/.test(l)&&i+1<lines.length&&/^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i+1])){const rows=[];while(i<lines.length&&/^\s*\|.*\|\s*$/.test(lines[i])){rows.push(lines[i]);i++;}const cells=(r)=>r.trim().replace(/^\||\|$/g,"").split("|").map(c=>c.trim());let t="<table><thead><tr>"+cells(rows[0]).map(h=>"<th>"+inline(h)+"</th>").join("")+"</tr></thead><tbody>";for(const r of rows.slice(2))t+="<tr>"+cells(r).map(c=>"<td>"+inline(c)+"</td>").join("")+"</tr>";out.push(t+"</tbody></table>");continue;}
@@ -585,6 +602,20 @@ function mdToHtml(md){
     const para=[l];i++;while(i<lines.length&&!/^\s*$/.test(lines[i])&&!/^(#{1,6}\s|```|\s*[-*]\s|\s*\d+\.\s|\s*>|\s*\|)/.test(lines[i])){para.push(lines[i]);i++;}out.push("<p>"+inline(para.join(" "))+"</p>");
   }
   return out.join("\n");
+}
+// Build nested <ul>/<ol> from flat items (indent-based), with GitHub-style task checkboxes.
+function buildNestedList(items,inline){ let html=""; const stack=[];
+  const closeTo=(ind)=>{ while(stack.length && stack[stack.length-1].indent>ind){ html+=stack.pop().ordered?"</ol>":"</ul>"; } };
+  for(const it of items){
+    if(!stack.length || it.indent>stack[stack.length-1].indent){ stack.push({ordered:it.ordered,indent:it.indent}); html+=it.ordered?"<ol>":"<ul>"; }
+    else { closeTo(it.indent); const top=stack[stack.length-1];
+      if(top && top.indent===it.indent && top.ordered!==it.ordered){ html+=stack.pop().ordered?"</ol>":"</ul>"; stack.push({ordered:it.ordered,indent:it.indent}); html+=it.ordered?"<ol>":"<ul>"; } }
+    html += it.task!==null
+      ? '<li class="task"><input type="checkbox" disabled'+(it.task?" checked":"")+">"+inline(it.text)+"</li>"
+      : "<li>"+inline(it.text)+"</li>";
+  }
+  while(stack.length){ html+=stack.pop().ordered?"</ol>":"</ul>"; }
+  return html;
 }
 // LaTeX → HTML for the .tex preview. Not a full TeX engine: it strips the preamble,
 // converts sectioning / text formatting / lists, and rewrites math environments
