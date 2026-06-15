@@ -668,6 +668,9 @@ function stepSystemPrompt(
 - RESEARCH FIRST when unsure: if the approach is unclear or needs current/specific knowledge, web_search/web_fetch to make it concrete before implementing.
 - SELF-UNBLOCK: if you hit a blocker (missing library, tool, command, or info), do NOT give up — install it (run_command), write a small helper script/tool, or search for the fix, then use it to continue. Build whatever you need to finish the task.
 - ASK ONLY WHEN AMBIGUOUS: if there's a genuine fork you cannot resolve from context, call ask_user with 2-4 concrete options; otherwise proceed with sensible defaults.
+- COMMANDS MUST BE NON-INTERACTIVE: pass flags so scaffolders don't prompt (e.g. \`npx --yes create-next-app@latest <name> --ts --eslint --app --tailwind --use-npm --no-src-dir --no-import-alias --yes\`). A command that waits for input will be killed.
+- NEVER run a dev server as a step: \`npm run dev\`/\`next dev\`/\`vite\`/\`serve\` never exit. To VERIFY the app, run \`npm run build\` (and \`npm test\` if present), not the dev server.
+- ONE project only: create the scaffold once; then cd/edit inside THAT directory. Don't re-scaffold or make a second project. Respect its structure — App Router uses \`app/\`, Pages Router uses \`pages/\`; never mix the two.
 - Call \`finish\` with a one-line summary when the objective is truly met.
 If you cannot call tools natively, reply with ONLY one JSON object per turn, no prose: {"name":"<tool>","arguments":{...}}`
     : `\nReturn a concise result for this step.`;

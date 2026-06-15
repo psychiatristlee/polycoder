@@ -36,7 +36,8 @@ export interface ModelSpec {
 // per-machine fit; the router auto-switches among whatever is installed, per task/cost.
 export const LOCAL_MODEL_CATALOG: ModelSpec[] = [
   // ── Coding ──
-  { id: "qwen2.5-coder:32b", label: "Qwen2.5 Coder 32B", paramsB: 32, diskGb: 20, minRamGb: 32, rank: 24, note: "최강 로컬 코더 (32GB+ 필요)", role: "coding" },
+  { id: "codellama:70b", label: "Code Llama 70B", paramsB: 70, diskGb: 39, minRamGb: 48, rank: 25, note: "대형 코더 (48GB+ 필요)", role: "coding" },
+  { id: "qwen2.5-coder:32b", label: "Qwen2.5 Coder 32B", paramsB: 32, diskGb: 20, minRamGb: 32, rank: 24, note: "최강급 로컬 코더 (32GB+ 필요)", role: "coding" },
   { id: "deepseek-coder-v2:16b", label: "DeepSeek-Coder-V2 16B", paramsB: 16, diskGb: 9, minRamGb: 16, rank: 23, note: "강력한 MoE 코더", role: "coding" },
   { id: "qwen2.5-coder:14b", label: "Qwen2.5 Coder 14B", paramsB: 14, diskGb: 9, minRamGb: 16, rank: 22, note: "강력한 코더 · 16GB 적정", role: "coding" },
   { id: "qwen2.5-coder:7b", label: "Qwen2.5 Coder 7B", paramsB: 7, diskGb: 4.7, minRamGb: 12, rank: 21, note: "균형형 코더 · 12~16GB", role: "coding" },
@@ -44,10 +45,14 @@ export const LOCAL_MODEL_CATALOG: ModelSpec[] = [
   { id: "qwen2.5-coder:3b", label: "Qwen2.5 Coder 3B", paramsB: 3, diskGb: 2.0, minRamGb: 8, rank: 13, note: "가벼운 코더 · 8GB", role: "coding" },
   { id: "qwen2.5-coder:1.5b", label: "Qwen2.5 Coder 1.5B", paramsB: 1.5, diskGb: 1.0, minRamGb: 6, rank: 6, note: "초경량 폴백", role: "coding" },
   // ── Reasoning ──
-  { id: "deepseek-r1:14b", label: "DeepSeek-R1 14B", paramsB: 14, diskGb: 9, minRamGb: 16, rank: 20, note: "강력한 추론(사고연쇄)", role: "reasoning" },
+  { id: "deepseek-r1:70b", label: "DeepSeek-R1 70B", paramsB: 70, diskGb: 43, minRamGb: 48, rank: 19, note: "최강급 추론 (48GB+ 필요)", role: "reasoning" },
+  { id: "deepseek-r1:32b", label: "DeepSeek-R1 32B", paramsB: 32, diskGb: 20, minRamGb: 32, rank: 18, note: "강력한 추론 (32GB+ 필요)", role: "reasoning" },
+  { id: "deepseek-r1:14b", label: "DeepSeek-R1 14B", paramsB: 14, diskGb: 9, minRamGb: 16, rank: 17, note: "강력한 추론(사고연쇄)", role: "reasoning" },
   { id: "deepseek-r1:8b", label: "DeepSeek-R1 8B", paramsB: 8, diskGb: 4.9, minRamGb: 12, rank: 16, note: "추론 · 중간 크기", role: "reasoning" },
   { id: "deepseek-r1:7b", label: "DeepSeek-R1 7B", paramsB: 7, diskGb: 4.7, minRamGb: 12, rank: 15, note: "추론 · 경량", role: "reasoning" },
   // ── General ──
+  { id: "qwen2.5:72b", label: "Qwen2.5 72B", paramsB: 72, diskGb: 47, minRamGb: 64, rank: 16, note: "대형 범용 (64GB+ 필요)", role: "general" },
+  { id: "llama3.1:70b", label: "Llama 3.1 70B", paramsB: 70, diskGb: 40, minRamGb: 48, rank: 16, note: "대형 범용 (48GB+ 필요)", role: "general" },
   { id: "llama3.1:8b", label: "Llama 3.1 8B", paramsB: 8, diskGb: 4.7, minRamGb: 12, rank: 12, note: "범용 · 견고", role: "general" },
   { id: "qwen2.5:7b", label: "Qwen2.5 7B", paramsB: 7, diskGb: 4.7, minRamGb: 12, rank: 11, note: "범용 · 균형", role: "general" },
   { id: "gemma2:9b", label: "Gemma 2 9B", paramsB: 9, diskGb: 5.4, minRamGb: 12, rank: 10, note: "Google 범용", role: "general" },

@@ -195,10 +195,19 @@ const NONINTERACTIVE_ENV: NodeJS.ProcessEnv = {
   DEBIAN_FRONTEND: "noninteractive",
 };
 
+// Long-running dev servers / watchers never "finish" — running them as a build step just
+// hangs until the idle-timeout kills them (a confusing non-zero exit). Detect them and,
+// once they report "ready", treat that as success and stop the process.
+const SERVER_CMD =
+  /\b(npm|pnpm|yarn|bun)\s+(run\s+)?(dev|start|serve|preview|watch)\b|\bnext\s+(dev|start)\b|\bvite\b|\bnodemon\b|webpack(-dev-server|\s+serve)|\bng\s+serve\b|\bserve\b|http-server|rails\s+s(erver)?\b|flask\s+run|artisan\s+serve|python\s+-m\s+http\.server|\buvicorn\b|\bgunicorn\b/i;
+const SERVER_READY =
+  /\b(ready|compiled successfully|compiled|listening|started server|server running|running at|local:\s+https?:\/\/|localhost:\d+|127\.0\.0\.1:\d+|VITE v[\d.]+\s+ready|webpack compiled|watching for file changes|✓ ready)\b/i;
+
 /** Run a shell command, streaming output, with an idle (no-output) timeout. */
 function runCommandStreaming(command: string, ctx: ToolContext): Promise<string> {
   const idleMs = commandIdleMs();
   const maxMs = commandMaxMs();
+  const isServer = SERVER_CMD.test(command);
   return new Promise((resolve) => {
     const child = spawn(command, {
       cwd: ctx.cwd,
@@ -234,6 +243,7 @@ function runCommandStreaming(command: string, ctx: ToolContext): Promise<string>
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => killTree("idle"), idleMs);
     };
+    let readyHit = false;
     const append = (d: Buffer) => {
       if (out.length < CAP) {
         out += d.toString();
@@ -241,11 +251,23 @@ function runCommandStreaming(command: string, ctx: ToolContext): Promise<string>
       } else {
         truncated = true;
       }
+      // A dev server that reports "ready/compiled/listening" succeeded — it won't exit on
+      // its own, so capture that as success and stop it instead of hanging until idle-kill.
+      if (isServer && !readyHit && SERVER_READY.test(out)) {
+        readyHit = true;
+        setTimeout(() => killTree("ready"), 800); // let a bit more output flush
+        return;
+      }
       resetIdle(); // any output proves it's still making progress
     };
     child.stdout?.on("data", append);
     child.stderr?.on("data", append);
-    resetIdle();
+    // Dev servers go quiet after "ready"; give them a generous first window to compile.
+    if (isServer && idleMs != null) {
+      idleTimer = setTimeout(() => killTree("idle"), Math.max(idleMs, 90_000));
+    } else {
+      resetIdle();
+    }
     if (maxMs != null) maxTimer = setTimeout(() => killTree("timeout"), maxMs);
     child.on("error", (err: any) => {
       clearTimers();
@@ -254,8 +276,13 @@ function runCommandStreaming(command: string, ctx: ToolContext): Promise<string>
     child.on("close", (code, signal) => {
       clearTimers();
       let prefix = "";
-      if (killReason === "idle")
-        prefix = `Killed: no output for ${Math.round((idleMs ?? 0) / 1000)}s — likely hung or waiting for input.\n`;
+      if (killReason === "ready")
+        prefix =
+          "✓ Dev server started successfully (compiled/ready), then stopped — a server doesn't terminate, so it can't be a build step. To VERIFY the build use `npm run build`; to actually view it, run the server outside the agent.\n";
+      else if (killReason === "idle")
+        prefix = isServer
+          ? `Killed: the server produced no "ready" signal within ${Math.round((idleMs ?? 0) / 1000)}s — check for a startup error above, or verify with \`npm run build\`.\n`
+          : `Killed: no output for ${Math.round((idleMs ?? 0) / 1000)}s — likely hung or waiting for input (re-run non-interactively, e.g. add --yes / -y).\n`;
       else if (killReason === "timeout")
         prefix = `Killed: exceeded absolute limit ${Math.round((maxMs ?? 0) / 1000)}s.\n`;
       else if (code !== 0) prefix = `Exit ${code}${signal ? ` (${signal})` : ""}.\n`;
