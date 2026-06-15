@@ -66,6 +66,8 @@ export function candidatesFor(
     policy.tierFloor && tierRank(policy.tierFloor) > tierRank(spec.minTier) ? policy.tierFloor : spec.minTier;
   return models.filter((m) => {
     if (m.id === "openrouter/auto") return false;
+    // Route to cloud only (user has a key and wants the stronger models).
+    if (policy.excludeLocal && m.id.startsWith("local/")) return false;
     // Drop unreliable $0 cloud (free-tier) models when asked; keep local $0 models.
     if (policy.excludeFree && !m.id.startsWith("local/") && blendedPrice(m) <= 0) return false;
     // The strength-floor bypass only applies when not escalating past the task's own floor.

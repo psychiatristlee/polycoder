@@ -628,6 +628,8 @@ ipcMain.on("run-agent", async (e, { goal, cwd, attachments }) => {
     }
   }
   const args = ["agent", finalGoal, "-w", "-x", "--web", "-C", cwd, "-o", process.env.POLY_OBJ || "value", "--no-free", "--no-skills", "--no-ask"];
+  // If the user has an OpenRouter key, route to cloud (local $0 otherwise always wins value/cheapest).
+  if (configStatus().hasKey) args.push("--no-local");
   const child = spawnPoly(args);
   agentChild = child;
   let buf = "";

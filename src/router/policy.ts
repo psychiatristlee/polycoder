@@ -28,6 +28,12 @@ export interface RoutingPolicy {
    */
   excludeFree?: boolean;
   /**
+   * Ignore local (`local/*`) models entirely and route to cloud. Set when the user has an
+   * OpenRouter key and wants the (stronger) cloud models — local $0 otherwise always wins
+   * the cheapest/value objectives, so adding a key alone wouldn't change the route.
+   */
+  excludeLocal?: boolean;
+  /**
    * Epsilon-greedy exploration rate (0..1). With this probability the router picks a
    * non-top, under-sampled candidate instead of the learned-best one — so the optimal
    * route doesn't calcify and new models keep getting sampled. 0 = always exploit.

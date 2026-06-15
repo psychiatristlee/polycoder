@@ -59,7 +59,7 @@ function client(config: PolymathConfig): OpenRouterClient {
 
 function buildPolicy(
   config: PolymathConfig,
-  opts: { objective?: string; maxCost?: string; free?: boolean; explore?: string }
+  opts: { objective?: string; maxCost?: string; free?: boolean; local?: boolean; explore?: string }
 ): RoutingPolicy {
   const objective = (opts.objective as RoutingObjective) || config.defaultObjective;
   const maxCost = opts.maxCost != null ? parseFloat(opts.maxCost) : config.maxCostPerCallUsd;
@@ -80,6 +80,7 @@ function buildPolicy(
     pinned: config.pinned,
     empirical,
     excludeFree: opts.free === false,
+    excludeLocal: opts.local === false,
     explore: Number.isFinite(explore) ? Math.min(Math.max(explore, 0), 1) : 0,
   };
 }
@@ -667,6 +668,7 @@ program
   .option("--no-skills", "don't reuse/learn skills")
   .option("--no-quality", "skip the quality score")
   .option("--no-ask", "autonomous: never ask the user — proceed with sensible defaults")
+  .option("--no-local", "ignore local models; route to cloud (uses your OpenRouter key)")
   .option("--max-attempts <n>", "max attempts", "3")
   .action(async (goalParts: string[], opts) => {
     const startedAt = Date.now();
