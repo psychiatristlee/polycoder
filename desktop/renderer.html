@@ -896,7 +896,12 @@ function run(){ const goal=ta.value.trim(); if(!goal && !attachments.length) ret
     // A message sent mid-run is acknowledged immediately (the user bubble is already shown).
     // If it reads like a course-correction, STOP the current task and switch to it; otherwise
     // add it to the queue to run after the current task finishes.
-    const correction=/(아니|아냐|멈춰|멈추|중단|그만|취소|중지|stop|다시\s*시작|다시\s*해|다시\s*만들|대신|바꿔|바꾸|새로|처음부터|그게\s*아니|틀렸|잘못|reset|restart|cancel)/i.test(goal);
+    // A "course-correction" is a SHORT message that STARTS with a stop/redo word AND carries no
+    // build intent — so normal follow-ups ("새로고침 버튼 넣어줘", "취소 기능 추가") never abort the run.
+    const cg=goal.trim();
+    const correction = cg.length<=40
+      && /^(아니|아냐|멈춰|멈추|중단|그만|취소|중지|다시\s*(시작|해|만들)|대신|처음부터|그게\s*아니|틀렸|잘못|stop|reset|restart|cancel)/i.test(cg)
+      && !/(만들|추가|구현|작성|생성|그려|기능|페이지|컴포넌트|버튼|button|build|create|add|implement|feature)/i.test(cg);
     if(correction){
       const m=document.createElement("div"); m.className="qpend"; m.textContent="🔄 현재 작업을 멈추고 이 요청으로 전환합니다…";
       chat.appendChild(m); scroll(true);
@@ -917,7 +922,7 @@ function run(){ const goal=ta.value.trim(); if(!goal && !attachments.length) ret
 let runStart=0, runTokens=0, runCost=0, meterEl=null, meterTimer=null;
 function fmtSecs(s){ return s<60 ? s.toFixed(1)+"s" : Math.floor(s/60)+"m "+Math.round(s%60)+"s"; }
 function meterText(prefix){ const s=runStart?((Date.now()-runStart)/1000):0;
-  return (prefix||"")+"⏱ "+fmtSecs(s)+" · 🔢 "+runTokens.toLocaleString()+" 토큰 · 💲$"+runCost.toFixed(4); }
+  return (prefix||"")+"⏱ "+fmtSecs(s)+(runTokens>0?(" · 🔢 "+runTokens.toLocaleString()+" 토큰"):"")+" · 💲$"+runCost.toFixed(4); }
 function startMeter(){ runStart=Date.now(); runTokens=0; runCost=0;
   if(!cur) assistantStart();
   meterEl=document.createElement("div"); meterEl.className="meter"; meterEl.textContent=meterText(); cur.appendChild(meterEl);
@@ -1186,7 +1191,7 @@ window.poly.onSuperviseEvent((e)=>{
       if(!r.done && r.nextInstruction){ const n=document.createElement("div"); n.className="nextcard";
         n.innerHTML='<b>→ 다음 지시</b><br>'+esc(r.nextInstruction); if(cur) cur.appendChild(n); }
       scroll(); break; }
-    case "result":{ busyOff(); if(e.costUsd!=null) runCost=e.costUsd; status((e.done?"✅ 목표 달성":"■ 종료"+(e.stoppedReason?" · "+e.stoppedReason:""))+
+    case "result":{ busyOff(); if(e.costUsd!=null){ runCost=e.costUsd; bumpMeter(0,0); } status((e.done?"✅ 목표 달성":"■ 종료"+(e.stoppedReason?" · "+e.stoppedReason:""))+
       " · 실행 "+(e.runs||e.step||0)+"회", e.done?"ok":"info"); break; }
     case "log": break;
     case "exit": busyOff(); if(meterEl) stopMeter(); supRunning=false; running=false; $("stop").hidden=true;

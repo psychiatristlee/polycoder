@@ -97,6 +97,14 @@ export function candidatesFor(
  * (tool-capable first), strongest-for-task first. The agent loop walks this to switch
  * models when one fails (e.g. a local model that can't load), with no API key needed.
  */
+// Hard policy exclusions that must also apply in the no-eligible-candidate fallback paths
+// (otherwise --no-local / --no-free silently leak local/free models back in).
+function policyExcludes(m: ModelInfo, policy: RoutingPolicy): boolean {
+  if (policy.excludeLocal && m.id.startsWith("local/")) return true;
+  if (policy.excludeFree && !m.id.startsWith("local/") && blendedPrice(m) <= 0) return true;
+  return false;
+}
+
 export function rankedCandidates(
   taskType: TaskType,
   models: ModelInfo[],
@@ -106,7 +114,7 @@ export function rankedCandidates(
   const cands = candidatesFor(taskType, models, policy, est);
   if (cands.length) return rank(cands, policy, taskType);
   const spec = TASK_SPECS[taskType];
-  const usable = models.filter((m) => m.id !== "openrouter/auto" && (!spec.needsTools || m.capabilities.tools));
+  const usable = models.filter((m) => m.id !== "openrouter/auto" && (!spec.needsTools || m.capabilities.tools) && !policyExcludes(m, policy));
   const byStrength = (a: ModelInfo, b: ModelInfo) => taskStrength(b, taskType) - taskStrength(a, taskType);
   const withTools = usable.filter((m) => m.capabilities.tools).sort(byStrength);
   return (withTools.length ? withTools : [...usable].sort(byStrength));
@@ -202,7 +210,7 @@ export function routeOrBest(
   if (r) return r;
   const spec = TASK_SPECS[taskType];
   const usable = models.filter(
-    (m) => m.id !== "openrouter/auto" && (!spec.needsTools || m.capabilities.tools)
+    (m) => m.id !== "openrouter/auto" && (!spec.needsTools || m.capabilities.tools) && !policyExcludes(m, policy)
   );
   if (!usable.length) return null;
   const byStrength = (a: ModelInfo, b: ModelInfo) => taskStrength(b, taskType) - taskStrength(a, taskType);

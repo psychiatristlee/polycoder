@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { OpenRouterClient } from "../providers/openrouter.js";
 import type { ChatMessage, CompletionResult, ModelInfo } from "../providers/types.js";
 import {
@@ -86,8 +88,11 @@ async function handleAskUser(
   } catch {
     /* keep defaults */
   }
-  emit({ type: "question", question, options });
+  // Only surface a question when there's an interactive resolver. Under --no-ask (deps.ask
+  // undefined) the model may still emit a TEXT ask_user call; we must NOT emit a question event
+  // (autonomous) and instead tell it to proceed.
   if (deps.ask) {
+    emit({ type: "question", question, options });
     try {
       const answer = await deps.ask(question, options);
       return { result: `The user chose: ${answer}. Proceed accordingly.` };
@@ -95,7 +100,7 @@ async function handleAskUser(
       /* fall through */
     }
   }
-  return { result: "No interactive user is available. Proceed with the most reasonable option and clearly state the assumption you made." };
+  return { result: "No interactive user is available. Proceed with the most reasonable default and clearly state the assumption you made — do NOT ask again." };
 }
 
 interface Acc {
@@ -112,6 +117,59 @@ function localDate(d = new Date()): string {
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
+
+// Detect a JS/TS project in `dir` (framework + router + scripts) from its package.json.
+function detectProject(dir: string): string | null {
+  try {
+    const pkgPath = path.join(dir, "package.json");
+    if (!fs.existsSync(pkgPath)) return null;
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+    const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+    let fw = "Node";
+    if (deps.next) fw = "Next.js";
+    else if (deps.vite) fw = "Vite";
+    else if (deps["react-scripts"]) fw = "Create React App";
+    else if (deps.react) fw = "React";
+    else if (deps.express || deps.fastify || deps.koa) fw = "Node server";
+    let router = "";
+    if (fw === "Next.js") router = fs.existsSync(path.join(dir, "app")) ? " (App Router — app/)" : fs.existsSync(path.join(dir, "pages")) ? " (Pages Router — pages/)" : "";
+    const scripts = Object.keys(pkg.scripts || {}).join(", ");
+    return `${fw}${router}${scripts ? ` · scripts: ${scripts}` : ""}`;
+  } catch {
+    return null;
+  }
+}
+
+// A cheap, bounded snapshot of the working directory injected into the planner + step prompts so
+// the agent knows what already exists (empty → scaffold in place; existing project → work within
+// it / cd into the right subdir) instead of planning blind and re-scaffolding. Recomputed per use.
+function dirSnapshot(cwd: string): string | undefined {
+  try {
+    const entries = fs
+      .readdirSync(cwd, { withFileTypes: true })
+      .filter((d) => !d.name.startsWith(".") || d.name === ".env" || d.name === ".gitignore")
+      .slice(0, 50)
+      .map((d) => (d.isDirectory() ? d.name + "/" : d.name))
+      .sort();
+    if (!entries.length) {
+      return "WORKING DIRECTORY is EMPTY. Scaffold the project IN PLACE here (e.g. `npx --yes create-next-app@latest . --ts --eslint --app --tailwind --use-npm --no-src-dir --no-import-alias --yes`) so later build/edit commands land in the right place.";
+    }
+    const here = detectProject(cwd);
+    let note = "";
+    if (here) {
+      note = `\nA ${here} project ALREADY EXISTS in the working directory. Work WITHIN it — do NOT scaffold a new project (re-running create-* fails with "directory not empty"). Edit the existing files and run build/test from here.`;
+    } else {
+      for (const e of entries.filter((x) => x.endsWith("/")).map((x) => x.slice(0, -1))) {
+        const sub = detectProject(path.join(cwd, e));
+        if (sub) { note = `\nThe project lives in the subdirectory ./${e} (a ${sub} project); the working directory itself has no package.json. Prefix every command with \`cd ${e} && …\` and target files under ${e}/.`; break; }
+      }
+    }
+    return `WORKING DIRECTORY contents (the agent's FIXED --cwd; read_file/write_file/list_dir paths are relative to it):\n${entries.join("  ")}${note}`;
+  } catch {
+    return undefined;
+  }
+}
+const mergeCtx = (...parts: (string | undefined)[]) => parts.filter(Boolean).join("\n\n") || undefined;
 
 export async function runAgent(
   goal: string,
@@ -166,7 +224,7 @@ export async function runAgent(
   let plan: Plan;
   if (planRoute) {
     try {
-      plan = await planRequest(goal, client, planRoute.model, (r) => logUsage(r, "plan"), skillContext);
+      plan = await planRequest(goal, client, planRoute.model, (r) => logUsage(r, "plan"), mergeCtx(skillContext, dirSnapshot(cwd)));
     } catch {
       plan = heuristicPlan(goal);
     }
@@ -421,7 +479,7 @@ async function runStep(
     tried.add(model.id);
     emit({ type: "step-start", step, model, estCostUsd: 0, explored: i === 0 && !!explore?.explored });
     const messages: ChatMessage[] = [
-      { role: "system", content: stepSystemPrompt(goal, step, priorSummaries, model.capabilities.tools, deps.ask != null, skillContext) },
+      { role: "system", content: stepSystemPrompt(goal, step, priorSummaries, model.capabilities.tools, deps.ask != null, mergeCtx(skillContext, dirSnapshot(toolCtx.cwd))) },
       { role: "user", content: step.description },
     ];
     loop = await runToolLoop(model, messages, step.type, rungDef, deps, toolCtx, emit, logUsage);
