@@ -81,6 +81,20 @@
   .status{font-size:13px;color:var(--mut);display:flex;align-items:center;gap:8px;margin:4px 0}
   .status .dot{width:6px;height:6px;border-radius:50%;background:var(--gold);flex-shrink:0}
   .tool{font:12px/1.5 ui-monospace,Menlo,monospace;color:#6a6258;background:var(--code);border:1px solid var(--border);border-radius:9px;padding:7px 11px;margin:5px 0;white-space:pre-wrap;word-break:break-word}
+  /* terminal/console box — groups streaming command output instead of spamming the chat */
+  .term{margin:8px 0;border:1px solid #4a3a30;border-radius:11px;overflow:hidden;box-shadow:var(--shadow)}
+  .termhead{display:flex;align-items:center;gap:8px;padding:7px 12px;background:#3a2d27;color:#e7d9c4;font-size:11.5px;font-weight:600;cursor:pointer;user-select:none}
+  .termhead .lights{display:flex;gap:5px}
+  .termhead .lights i{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .termhead .lights i:nth-child(1){background:#c0563f}.termhead .lights i:nth-child(2){background:#d8a64a}.termhead .lights i:nth-child(3){background:#5a8a57}
+  .termhead .tt{flex:1}
+  .termhead .tg{color:#b09a80;font-weight:400;font-size:10.5px}
+  .termhead .caret{color:#b09a80;transition:transform .15s}
+  .term.collapsed .caret{transform:rotate(-90deg)}
+  .termbody{max-height:260px;overflow:auto;padding:10px 13px;margin:0;background:#241c1a;font:12px/1.55 ui-monospace,Menlo,Consolas,monospace;color:#e6d8c2;white-space:pre-wrap;word-break:break-word}
+  .term.collapsed .termbody{display:none}
+  .termbody div{min-height:1.2em}
+  .termbody .e{color:#e88f6a}
   .qbox{margin:9px 0;background:var(--bg);border:1px solid var(--border2);border-radius:14px;padding:14px 16px}
   .qq{font-weight:600;color:var(--accent2);margin-bottom:10px}
   .qopts{display:flex;flex-direction:column;gap:7px}
@@ -316,14 +330,33 @@
 
 <script>
 const $=(id)=>document.getElementById(id);
-let cwd=null, shotPath="", running=false, cur=null, curP=null, spinnerRow=null;
+let cwd=null, shotPath="", running=false, cur=null, curP=null, spinnerRow=null, curTerm=null, lastTool="";
 const chat=$("chat");
 function hideHello(){ const h=$("hello"); if(h) h.remove(); }
 function scroll(){ chat.scrollTop=chat.scrollHeight; }
 function esc(s){ return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
 
 function userMsg(text){ hideHello(); const m=document.createElement("div"); m.className="msg user"; m.innerHTML='<div class="bubble"></div>'; m.querySelector(".bubble").textContent=text; chat.appendChild(m); scroll(); }
-function assistantStart(){ hideHello(); const m=document.createElement("div"); m.className="msg assistant"; m.innerHTML='<div class="av">P</div><div class="body"></div>'; chat.appendChild(m); cur=m.querySelector(".body"); curP=null; scroll(); }
+function assistantStart(){ hideHello(); const m=document.createElement("div"); m.className="msg assistant"; m.innerHTML='<div class="av">P</div><div class="body"></div>'; chat.appendChild(m); cur=m.querySelector(".body"); curP=null; curTerm=null; scroll(); }
+// Console box: stream command/terminal output into one collapsible box instead of N chat rows.
+function termBox(label){ if(!cur) assistantStart();
+  const box=document.createElement("div"); box.className="term";
+  box.innerHTML='<div class="termhead"><span class="lights"><i></i><i></i><i></i></span><span class="tt">'+esc(label||"터미널")+'</span><span class="tg"></span><span class="caret">▾</span></div><pre class="termbody"></pre>';
+  box.querySelector(".termhead").onclick=()=>box.classList.toggle("collapsed");
+  cur.appendChild(box); curTerm=box; curP=null; scroll(); return box;
+}
+function termLine(text,isErr){ if(!curTerm) termBox("터미널");
+  const body=curTerm.querySelector(".termbody");
+  for(let ln of String(text).split("\n")){ ln=ln.replace(/\r/g,""); if(ln==="") continue;
+    const prog=/[█▓▒░]|\d+(\.\d+)?\s?[KMG]B\s?\/|^[-\\|/]+$|%$|\d+%/.test(ln);
+    const last=body.lastElementChild;
+    if(prog && last && last.dataset.prog==="1"){ last.textContent=ln; }
+    else { const d=document.createElement("div"); d.textContent=ln; if(prog) d.dataset.prog="1"; if(isErr) d.className="e"; body.appendChild(d); }
+  }
+  while(body.childElementCount>600) body.removeChild(body.firstChild);
+  const tg=curTerm.querySelector(".tg"); if(tg) tg.textContent=body.childElementCount+" 줄";
+  body.scrollTop=body.scrollHeight; scroll();
+}
 function status(text,cls){ if(!cur) assistantStart(); const d=document.createElement("div"); d.className="status "+(cls||""); const dot=document.createElement("span"); dot.className="dot"; const s=document.createElement("span"); s.className=cls||""; s.textContent=text; d.appendChild(dot); d.appendChild(s); cur.appendChild(d); curP=null; scroll(); return d; }
 function tool(text){ if(!cur) assistantStart(); const d=document.createElement("div"); d.className="tool"; d.textContent=text; cur.appendChild(d); curP=null; scroll(); }
 function delta(t){ if(!cur) assistantStart(); if(!curP){ curP=document.createElement("p"); cur.appendChild(curP);} curP.textContent+=t; scroll(); }
@@ -472,12 +505,14 @@ function run(){ const goal=ta.value.trim(); if(!goal && !attachments.length) ret
 }
 $("run").onclick=run;
 
-window.poly.onLog((s)=>{ if(s) tool(s);
-  if(s && /setup finished|설치 (완료|끝)|Setup complete/i.test(s)){
+window.poly.onLog((s)=>{ if(!s) return;
+  const err=/error|실패|failed|0x[0-9a-f]{6,}|not on PATH|예기치 않은/i.test(s);
+  termLine(s, err);   // stream into the console box, not the chat
+  if(/setup finished|설치 (완료|끝)|Setup complete/i.test(s)){
     busyOff();
     refreshStatus().then(()=>{
-      $("loginmask").hidden=true;
-      if(hasLocal){ status("✓ 로컬 모델 준비 완료 — 키 없이 바로 실행할 수 있어요. 메시지를 입력하세요.","ok"); try{ta.focus();}catch{} }
+      if(hasLocal){ $("loginmask").hidden=true; status("✓ 로컬 모델 준비 완료 — 키 없이 바로 실행할 수 있어요. 메시지를 입력하세요.","ok"); try{ta.focus();}catch{} }
+      else { status("⚠ 로컬 LLM 설치가 끝나지 않았어요 (위 콘솔 참고). OpenRouter 키를 넣거나 수동 설치가 필요합니다.","err"); openLogin(); }
     });
   }
 });
@@ -486,8 +521,14 @@ window.poly.onEvent((e)=>{
     case "plan": status("계획 수립 ("+e.plan.steps.length+" 단계) · "+e.planModel,"info"); break;
     case "criteria": status("목표: "+e.goalType+" · 기준 "+e.criteria.length+"개","info"); break;
     case "step-start": status((e.explored?"🎲 ":"")+"단계 "+e.step.id+" ["+e.step.type+"] → "+e.model.id,"step"); break;
-    case "tool-call": tool("🔧 "+e.name+"("+(e.args||"").slice(0,90)+")"); break;
-    case "tool-result": tool("↳ "+(e.result||"").replace(/\n/g," ").slice(0,140)); break;
+    case "tool-call": { lastTool=e.name;
+      if(e.name==="run_command"){ let cmd=e.args||""; try{ const a=JSON.parse(e.args); cmd=a.command||a.cmd||e.args; }catch{} termBox("$ "+String(cmd).replace(/\n/g," ").slice(0,80)); termLine(String(cmd)); }
+      else tool("🔧 "+e.name+"("+(e.args||"").slice(0,90)+")");
+      break; }
+    case "tool-result":
+      if(lastTool==="run_command") termLine((e.result||"").trimEnd());
+      else tool("↳ "+(e.result||"").replace(/\n/g," ").slice(0,140));
+      break;
     case "question": renderQuestion(e.question, e.options); break;
     case "step-end": status("✓ "+(e.summary||"").slice(0,150),"ok"); refreshFiles(); break;
     case "verdict": status((e.allMet?"✅ ":"❌ ")+e.metCount+"/"+e.total+" 기준 충족",e.allMet?"ok":"err"); break;
