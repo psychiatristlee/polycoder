@@ -564,7 +564,8 @@ async function runToolLoop(
   emit: (e: AgentEvent) => void,
   logUsage: (r: CompletionResult, taskType: string) => UsageEntry
 ): Promise<LoopResult> {
-  const useTools = model.capabilities.tools;
+  let useTools = model.capabilities.tools; // may flip off if the model rejects tools at runtime
+  let forceTextTools = false; // model rejected native tools → parse tool calls from its text
   const start = Date.now();
   let prompt = 0,
     completion = 0,
@@ -593,7 +594,16 @@ async function runToolLoop(
         }
         return next.value;
       } catch (err: any) {
-        const d = diagnose(err?.message ?? String(err), model.id);
+        const raw = err?.message ?? String(err);
+        // The model can't do native tool calls → drop tools and retry with text-based tool
+        // calling (the loop parses a JSON tool call from the reply). No 400, no model switch.
+        if (useTools && /does not support tools|tools.*not supported|tool use is not|function calling/i.test(raw)) {
+          useTools = false;
+          forceTextTools = true; // keep doing tools, just parse them from text instead of native
+          emit({ type: "error", message: `ℹ ${model.id}는 네이티브 도구 미지원 — 텍스트 기반 도구 호출로 전환합니다.` });
+          continue;
+        }
+        const d = diagnose(raw, model.id);
         if (d && d.retryable && d.action && healUsed < MAX_HEAL) {
           healUsed++;
           emit({ type: "error", message: `⚠ 원인: ${d.cause} → 자동 수정 중: ${d.fix}…` });
@@ -643,7 +653,7 @@ async function runToolLoop(
       }
 
       // Non-native tool calling: parse a JSON tool call from the text.
-      const textCall = useTools ? parseTextToolCall(result.content) : null;
+      const textCall = useTools || forceTextTools ? parseTextToolCall(result.content) : null;
       if (textCall) {
         toolCalls++;
         emit({ type: "tool-call", name: textCall.function.name, args: textCall.function.arguments });

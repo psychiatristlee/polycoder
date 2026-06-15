@@ -6,6 +6,14 @@ import type { OpenRouterClient } from "../providers/openrouter.js";
 import { LOCAL_PREFIX } from "../providers/openrouter.js";
 import { classifyTier } from "./tiers.js";
 
+// Local models that actually support Ollama's tool/function-calling API. Sending tools to a
+// model that doesn't (e.g. deepseek-coder-v2, codellama, gemma, phi3, llava) returns HTTP 400
+// ("does not support tools"). Conservative ALLOWLIST: anything not matched is treated as
+// tool-less and driven via text-based tool calls (which the agent loop handles), so it never
+// 400s — and the router keeps tool-needing tasks (edit/command/…) on a tool-capable model.
+const LOCAL_TOOLS_OK =
+  /\b(qwen2\.5|qwen3|qwq|llama-?3\.[123]|llama-?4|mistral(-nemo|-small|-large)?|mixtral|command-?r|command-?a|firefunction|hermes\s?3|granite\s?3|smollm2|cogito|nemotron|athene|devstral|magistral)\b/i;
+
 export function parseLocalModels(raw: any[]): ModelInfo[] {
   const out: ModelInfo[] = [];
   for (const m of raw) {
@@ -19,9 +27,7 @@ export function parseLocalModels(raw: any[]): ModelInfo[] {
       pricing: { promptUsdPerMTok: 0, completionUsdPerMTok: 0 },
       tier: classifyTier(name, 0),
       capabilities: {
-        // OpenAI-compatible local servers pass tool schemas through; models that
-        // can't call tools simply reply with text, which the agent loop handles.
-        tools: true,
+        tools: LOCAL_TOOLS_OK.test(name),
         vision: /llava|vision|vl\b|moondream/i.test(name),
       },
     });
