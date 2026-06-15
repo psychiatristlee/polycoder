@@ -307,6 +307,8 @@
   .pvhead button{background:transparent;border:0;color:var(--mut);font-size:16px;border-radius:7px;padding:4px 8px}.pvhead button:hover{background:var(--panel2)}
   .pvhead .pvpdf{font-size:11px;font-weight:700;border:1px solid var(--border2);color:var(--accent2);padding:3px 9px}
   .pvhead .pvpdf:hover{border-color:var(--accent);background:var(--bubble)}.pvhead .pvpdf:disabled{opacity:.5}
+  .pvhead .pvsrc{font-size:11px;font-weight:700;font-family:ui-monospace,Menlo,monospace;border:1px solid var(--border2);color:var(--accent2);padding:3px 8px}
+  .pvhead .pvsrc:hover{border-color:var(--accent);background:var(--bubble)}
   .pvbody{flex:1;overflow:auto;background:var(--card)}
   .pvbody iframe{width:100%;height:100%;border:0;background:#fff}
   .pvload{display:flex;align-items:center;justify-content:center;gap:10px;height:100%;color:var(--mut)}
@@ -416,7 +418,7 @@
      <div class="modelwrap" id="modellist"></div>
    </div>
    <div class="preview" id="preview" hidden>
-     <div class="pvhead"><span class="pvic" id="pvic">◆</span><span class="pvname" id="pvname"></span><button id="pvpdf" class="pvpdf" title="PDF로 내보내기">PDF</button><button id="pvcopy" title="내용 복사">📋</button><button id="pvopen" title="외부 앱으로 열기">↗</button><button id="pvclose" title="닫기">✕</button></div>
+     <div class="pvhead"><span class="pvic" id="pvic">◆</span><span class="pvname" id="pvname"></span><button id="pvsource" class="pvsrc" title="소스 보기">&lt;/&gt;</button><button id="pvpdf" class="pvpdf" title="PDF로 내보내기">PDF</button><button id="pvcopy" title="내용 복사">📋</button><button id="pvopen" title="외부 앱으로 열기">↗</button><button id="pvclose" title="닫기">✕</button></div>
      <div class="pvbody" id="pvbody"></div>
    </div>
   </main>
@@ -744,30 +746,41 @@ function addCopyButtons(root){ root.querySelectorAll("pre").forEach(pre=>{ if(pr
   btn.onclick=()=>{ const code=pre.querySelector("code"); const t=code?code.textContent:pre.textContent;
     navigator.clipboard.writeText(t).then(()=>{ btn.textContent="복사됨!"; setTimeout(()=>btn.textContent="복사",1200); }).catch(()=>{}); };
   pre.appendChild(btn); }); }
+let pvMode="preview";   // "preview" | "source"
 async function openPreview(path){
   const name=path.split("/").pop(), ext=(name.split(".").pop()||"").toLowerCase();
   const pv=$("preview"), body=$("pvbody"); $("pvname").textContent=name; $("pvic").textContent=ICONS[ext]||"◆"; pv.hidden=false;
-  pvCurrent={path,ext,content:""};
+  pvCurrent={path,ext,content:""}; pvMode="preview";
   $("pvpdf").style.display=PDF_OK.test(ext)?"":"none";
+  $("pvsource").style.display="none"; $("pvsource").textContent="</>"; $("pvsource").title="소스 보기";
   body.innerHTML='<div class="pvload"><span class="spin"></span> 로딩…</div>';
   try{
     if(["png","jpg","jpeg","gif","webp","ico","bmp"].includes(ext)){ body.innerHTML='<img class="pv" src="'+fileUrl(path)+'">'; return; }
     if(ext==="pdf"){ body.innerHTML='<iframe src="'+fileUrl(path)+'"></iframe>'; return; }
-    if(ext==="html"||ext==="htm"){ body.innerHTML='<iframe src="'+fileUrl(path)+'" sandbox="allow-same-origin"></iframe>'; const h=await window.poly.readFile(path); if(h.ok) pvCurrent.content=h.content; return; }
     if(ext==="xlsx"||ext==="xls"){ const r=await window.poly.readXlsx(path); if(!r.ok){body.innerHTML='<pre class="raw">'+esc(r.error)+'</pre>';return;} body.innerHTML='<div class="gridwrap">'+r.sheets.map(s=>'<div class="sheetname">📊 '+esc(s.name)+'</div>'+gridTable(s.rows)).join("<br>")+'</div>'; return; }
+    // text / document types: read source, expose the source⇄preview toggle, render
     const r=await window.poly.readFile(path);
     if(!r.ok){ body.innerHTML='<pre class="raw">'+esc(r.error||"읽기 실패")+'</pre>'; return; }
-    pvCurrent.content=r.content;
-    if(ext==="svg"){ body.innerHTML='<div class="svgwrap">'+r.content+'</div>'; return; }
-    if(ext==="md"||ext==="markdown"){ body.innerHTML='<div class="md">'+mdToHtml(r.content)+'</div>'; renderMath(body.firstChild); renderMermaid(body); addCopyButtons(body); return; }
-    if(ext==="tex"){ body.innerHTML='<div class="md">'+texToHtml(r.content)+'</div>'; renderMath(body.firstChild); return; }
-    if(ext==="mmd"||ext==="mermaid"){ body.innerHTML='<div class="md"><div class="mermaid">'+esc(r.content)+'</div></div>'; renderMermaid(body); return; }
-    if(ext==="csv"){ body.innerHTML='<div class="gridwrap">'+gridTable(parseCsv(r.content))+'</div>'; return; }
-    if(ext==="json"){ let pretty=r.content; try{pretty=JSON.stringify(JSON.parse(r.content),null,2);}catch{} body.innerHTML='<pre class="raw">'+esc(pretty)+'</pre>'; addCopyButtons(body); return; }
-    body.innerHTML='<pre class="raw">'+esc(r.content)+'</pre>'; addCopyButtons(body);
+    pvCurrent.content=r.content; $("pvsource").style.display="";
+    pvRenderPreview();
   }catch(e){ body.innerHTML='<pre class="raw">'+esc(String(e))+'</pre>'; }
 }
+function pvRenderPreview(){ const body=$("pvbody"), ext=pvCurrent.ext, c=pvCurrent.content;
+  if(ext==="html"||ext==="htm"){ body.innerHTML='<iframe src="'+fileUrl(pvCurrent.path)+'" sandbox="allow-same-origin"></iframe>'; return; }
+  if(ext==="svg"){ body.innerHTML='<div class="svgwrap">'+c+'</div>'; return; }
+  if(ext==="md"||ext==="markdown"){ body.innerHTML='<div class="md">'+mdToHtml(c)+'</div>'; renderMath(body.firstChild); renderMermaid(body); addCopyButtons(body); return; }
+  if(ext==="tex"){ body.innerHTML='<div class="md">'+texToHtml(c)+'</div>'; renderMath(body.firstChild); return; }
+  if(ext==="mmd"||ext==="mermaid"){ body.innerHTML='<div class="md"><div class="mermaid">'+esc(c)+'</div></div>'; renderMermaid(body); return; }
+  if(ext==="csv"){ body.innerHTML='<div class="gridwrap">'+gridTable(parseCsv(c))+'</div>'; return; }
+  if(ext==="json"){ let p=c; try{p=JSON.stringify(JSON.parse(c),null,2);}catch{} body.innerHTML='<pre class="raw">'+esc(p)+'</pre>'; addCopyButtons(body); return; }
+  body.innerHTML='<pre class="raw">'+esc(c)+'</pre>'; addCopyButtons(body);
+}
+function pvShowSource(){ const body=$("pvbody"); body.innerHTML='<pre class="raw">'+esc(pvCurrent.content||"")+'</pre>'; addCopyButtons(body); }
+function pvToggleSource(){ pvMode = pvMode==="preview"?"source":"preview";
+  $("pvsource").textContent = pvMode==="source"?"👁":"</>"; $("pvsource").title = pvMode==="source"?"미리보기 보기":"소스 보기";
+  if(pvMode==="source") pvShowSource(); else pvRenderPreview(); }
 $("pvclose").onclick=()=>{ $("preview").hidden=true; };
+$("pvsource").onclick=pvToggleSource;
 $("pvopen").onclick=()=>{ if(pvCurrent.path) window.poly.openExternal(fileUrl(pvCurrent.path)); };
 // Export the rendered preview to a PDF (printToPDF in main). Only for rendered doc types.
 const PDF_OK=/^(md|markdown|tex|mmd|mermaid|csv|json|svg)$/;
@@ -781,6 +794,7 @@ function buildExportHtml(){
     +'<body><div class="preview"><div class="pvbody">'+$("pvbody").innerHTML+'</div></div></body></html>';
 }
 async function exportPdf(){ if(!pvCurrent.path||!PDF_OK.test(pvCurrent.ext)) return;
+  if(pvMode==="source"){ pvMode="preview"; $("pvsource").textContent="</>"; pvRenderPreview(); await new Promise(r=>setTimeout(r,400)); }
   const b=$("pvpdf"), old=b.textContent; b.textContent="…"; b.disabled=true;
   try{ const outPath=pvCurrent.path.replace(/\.[^.\/]+$/,"")+".pdf";
     const baseDir=pvCurrent.path.replace(/[\/\\][^\/\\]*$/,"");
