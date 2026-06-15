@@ -529,7 +529,8 @@ function renderQuestion(q,options){ if(!cur) assistantStart(); busyOff();
   const wrap=document.createElement("div"); wrap.className="qbox";
   const t=document.createElement("div"); t.className="qq"; t.textContent="❓ "+q; wrap.appendChild(t);
   const ob=document.createElement("div"); ob.className="qopts";
-  const choose=(val)=>{ ob.querySelectorAll("button,input").forEach(x=>x.disabled=true); window.poly.answer(val); status("선택: "+val,"ok"); busyOn("계속 진행 중…"); };
+  const choose=(val)=>{ try{ document.activeElement&&document.activeElement.blur&&document.activeElement.blur(); }catch{}  // commit any IME composition to its own input, don't flush a stray syllable into the composer
+    ob.querySelectorAll("button,input").forEach(x=>x.disabled=true); window.poly.answer(val); status("선택: "+val,"ok"); busyOn("계속 진행 중…"); };
   (options||[]).forEach(o=>{ const b=document.createElement("button"); b.className="qopt"; b.textContent=o;
     b.onclick=()=>{ b.classList.add("sel"); choose(o); };
     ob.appendChild(b); });
@@ -560,7 +561,7 @@ $("loginsave").onclick=async()=>{ const k=$("loginkey").value.trim();
   $("loginmsg").textContent="저장 중…"; const ok=await window.poly.saveKey(k);
   if(ok){ $("loginkey").value=""; $("loginmsg").textContent=""; await refreshStatus(); if(hasKey) $("loginmask").hidden=true; }
   else $("loginmsg").textContent="저장 실패. 다시 시도해 주세요."; };
-$("loginkey").addEventListener("keydown",(e)=>{ if(e.key==="Enter") $("loginsave").click(); });
+$("loginkey").addEventListener("keydown",(e)=>{ if(e.key==="Enter"&&!e.isComposing&&e.keyCode!==229) $("loginsave").click(); });
 $("loginlocal").onclick=()=>{ $("loginmask").hidden=true; showView("model"); };
 $("getkey").onclick=(e)=>{ e.preventDefault(); window.poly.openExternal("https://openrouter.ai/keys"); };
 // Clicking the key/local chips reopens the login screen.
@@ -820,7 +821,13 @@ ta.addEventListener("input",()=>{ta.style.height="auto";ta.style.height=Math.min
 // Enter sends — but NOT the Enter that commits a Korean/CJK IME composition (한글 조합 확정).
 // Without the isComposing/keyCode-229 guard, the commit-Enter both sends and leaves the trailing
 // syllable behind, firing a stray second message (e.g. "...만들어" → an extra "어").
-ta.addEventListener("keydown",(e)=>{ if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing&&e.keyCode!==229){e.preventDefault();run();}});
+// Track IME composition explicitly and OR it into the Enter guard — belt-and-suspenders so a
+// composing-Enter (한글 조합 확정) can never send + leave a trailing syllable, even on builds
+// where isComposing momentarily reads false on the commit keydown.
+let taComposing=false;
+ta.addEventListener("compositionstart",()=>{ taComposing=true; });
+ta.addEventListener("compositionend",()=>{ taComposing=false; });
+ta.addEventListener("keydown",(e)=>{ if(e.key==="Enter"&&!e.shiftKey&&!taComposing&&!e.isComposing&&e.keyCode!==229){e.preventDefault();run();}});
 
 /* ---- chat attachments (image · video keyframes · documents) ---- */
 let attachments=[];
