@@ -1,13 +1,72 @@
 // Polymac — Electron main process. A Claude-Desktop-style app whose engine is the
 // poly agent: it picks a working folder, accepts an OpenRouter key (or uses the local
 // LLM), and drives `poly agent` (headless JSON stream) to edit files / write code.
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, net } = require("electron");
 const { spawn, execSync } = require("node:child_process");
+const http = require("node:http");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 
 const IS_WIN = process.platform === "win32";
+
+// ---- auth + consent + telemetry state --------------------------------------
+const TELEMETRY_URL = process.env.POLY_TELEMETRY_URL || "https://polysearch--mathology-b8e3d.us-east4.hosted.app/api/errors";
+// Firebase web config for mathology-b8e3d (apiKey is a public client identifier, safe to ship).
+const FIREBASE = {
+  apiKey: process.env.POLY_FB_APIKEY || "AIzaSyB1fH68NPbwZ0aNlTSo5nmsm30W49MDhTQ", // public client id
+  authDomain: "mathology-b8e3d.firebaseapp.com",
+  projectId: "mathology-b8e3d",
+};
+// The hosted sign-in page (Firebase Google popup) that hands the result back to this app.
+const SIGNIN_URL = process.env.POLY_SIGNIN_URL || "https://polysearch--mathology-b8e3d.us-east4.hosted.app/desktop-signin";
+function stateFile() {
+  return path.join(app.getPath("userData"), "polyrun-state.json");
+}
+function loadState() {
+  try {
+    return JSON.parse(fs.readFileSync(stateFile(), "utf8"));
+  } catch {
+    return {};
+  }
+}
+function saveState(s) {
+  try {
+    fs.mkdirSync(path.dirname(stateFile()), { recursive: true });
+    fs.writeFileSync(stateFile(), JSON.stringify(s, null, 2));
+  } catch {
+    /* best-effort */
+  }
+}
+let appState = { user: null, termsAccepted: false, telemetry: true };
+function authStatus() {
+  return { user: appState.user, termsAccepted: !!appState.termsAccepted, telemetry: appState.telemetry !== false, version: app.getVersion() };
+}
+// Send an error to the Cloud SQL sink (only with the user's telemetry consent).
+async function reportError(source, message, stack, context) {
+  if (!appState.termsAccepted || appState.telemetry === false) return;
+  try {
+    await fetch(TELEMETRY_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        appVersion: app.getVersion(),
+        platform: process.platform + " " + process.arch,
+        userId: appState.user?.uid || "",
+        userEmail: appState.user?.email || "",
+        source: String(source || "").slice(0, 60),
+        message: String(message || "").slice(0, 4000),
+        stack: String(stack || "").slice(0, 20000),
+        context: context || {},
+      }),
+    });
+  } catch {
+    /* never let telemetry throw */
+  }
+}
+process.on("uncaughtException", (e) => reportError("main:uncaught", e?.message, e?.stack));
+process.on("unhandledRejection", (e) => reportError("main:rejection", e?.message || String(e), e?.stack));
 function polyBin() {
   try {
     const which = IS_WIN ? "where poly" : "command -v poly";
@@ -240,6 +299,74 @@ function configStatus() {
 }
 
 ipcMain.handle("status", () => configStatus());
+
+// ---- auth (Google via Firebase) + consent + telemetry IPC ----
+ipcMain.handle("auth-status", () => authStatus());
+ipcMain.handle("accept-terms", (_e, telemetry) => {
+  appState.termsAccepted = true;
+  appState.telemetry = telemetry !== false;
+  saveState(appState);
+  return authStatus();
+});
+ipcMain.handle("set-telemetry", (_e, on) => {
+  appState.telemetry = !!on;
+  saveState(appState);
+  return authStatus();
+});
+ipcMain.handle("sign-out", () => {
+  appState.user = null;
+  saveState(appState);
+  return authStatus();
+});
+ipcMain.on("report-error", (_e, ev) => reportError(ev?.source || "renderer", ev?.message, ev?.stack, ev?.context));
+// Google sign-in: open the hosted Firebase popup page in the system browser; it hands the
+// signed-in user back to a one-shot loopback server here.
+ipcMain.handle("sign-in-google", () =>
+  new Promise((resolve) => {
+    let done = false;
+    const finish = (server) => {
+      if (done) return;
+      done = true;
+      try {
+        server.close();
+      } catch {
+        /* */
+      }
+      try {
+        win && win.webContents.send("auth-changed", authStatus());
+      } catch {
+        /* */
+      }
+      resolve(authStatus());
+    };
+    const server = http.createServer((req, res) => {
+      const u = new URL(req.url || "/", "http://127.0.0.1");
+      if (u.pathname === "/cb") {
+        const uid = u.searchParams.get("uid");
+        const email = u.searchParams.get("email");
+        const name = u.searchParams.get("name") || "";
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        if (uid && email) {
+          appState.user = { uid, email, name };
+          saveState(appState);
+          res.end("<meta charset=utf-8><body style='font-family:sans-serif;text-align:center;margin-top:18vh'><h2>✓ 로그인 완료</h2><p>polyrun으로 돌아가세요. 이 창은 닫아도 됩니다.</p><script>window.close()</script></body>");
+        } else {
+          res.end("<meta charset=utf-8><body><h2>로그인 실패</h2></body>");
+        }
+        finish(server);
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+    server.on("error", () => finish(server));
+    server.listen(0, "127.0.0.1", () => {
+      const port = server.address().port;
+      shell.openExternal(`${SIGNIN_URL}?port=${port}`);
+    });
+    setTimeout(() => finish(server), 180000); // 3-minute timeout
+  })
+);
 // Point poly at an OpenAI-compatible local runtime (Ollama / LM Studio / llama.cpp / …).
 ipcMain.handle("set-local-url", (_e, url) =>
   new Promise((resolve) => {
@@ -523,7 +650,10 @@ ipcMain.on("supervise-stop", () => {
   superviseChild = null;
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  appState = { ...appState, ...loadState() }; // restore login + consent
+  createWindow();
+});
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });

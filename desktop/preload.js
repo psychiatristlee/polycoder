@@ -14,6 +14,14 @@ contextBridge.exposeInMainWorld("poly", {
   attachmentKind: (p) => ipcRenderer.invoke("attachment-kind", p),
   saveBlob: (name, dataUrl) => ipcRenderer.invoke("save-blob", { name, dataUrl }),
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
+  // auth + consent + telemetry
+  authStatus: () => ipcRenderer.invoke("auth-status"),
+  signInGoogle: () => ipcRenderer.invoke("sign-in-google"),
+  signOut: () => ipcRenderer.invoke("sign-out"),
+  acceptTerms: (telemetry) => ipcRenderer.invoke("accept-terms", telemetry),
+  setTelemetry: (on) => ipcRenderer.invoke("set-telemetry", on),
+  reportError: (ev) => ipcRenderer.send("report-error", ev),
+  onAuthChanged: (cb) => ipcRenderer.on("auth-changed", (_e, s) => cb(s)),
   // local model management
   localCatalog: () => ipcRenderer.invoke("local-catalog"),
   cloudCatalog: () => ipcRenderer.invoke("cloud-catalog"),

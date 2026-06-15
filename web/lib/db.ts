@@ -55,6 +55,72 @@ async function ensureSchema(pool: Pool): Promise<void> {
       revoked boolean NOT NULL DEFAULT false
     );
   `);
+  // Error telemetry from the polyrun desktop app (so issues can be triaged/fixed later).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_errors (
+      id bigserial PRIMARY KEY,
+      ts timestamptz NOT NULL DEFAULT now(),
+      app text NOT NULL DEFAULT 'polyrun',
+      app_version text NOT NULL DEFAULT '',
+      platform text NOT NULL DEFAULT '',
+      user_id text NOT NULL DEFAULT '',
+      user_email text NOT NULL DEFAULT '',
+      source text NOT NULL DEFAULT '',
+      message text NOT NULL DEFAULT '',
+      stack text NOT NULL DEFAULT '',
+      context jsonb NOT NULL DEFAULT '{}'::jsonb
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_app_errors_ts ON app_errors (ts DESC);`);
+}
+
+export interface ErrorEvent {
+  appVersion?: string;
+  platform?: string;
+  userId?: string;
+  userEmail?: string;
+  source?: string;
+  message: string;
+  stack?: string;
+  context?: unknown;
+}
+
+/** Record one error event from a client app. Field sizes are capped to bound abuse. */
+export async function insertError(e: ErrorEvent): Promise<void> {
+  const pool = await getPool();
+  const cap = (s: unknown, n: number) => String(s ?? "").slice(0, n);
+  let ctx = "{}";
+  try {
+    ctx = JSON.stringify(e.context ?? {}).slice(0, 16000);
+  } catch {
+    ctx = "{}";
+  }
+  await pool.query(
+    `INSERT INTO app_errors (app_version, platform, user_id, user_email, source, message, stack, context)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`,
+    [cap(e.appVersion, 40), cap(e.platform, 40), cap(e.userId, 128), cap(e.userEmail, 256), cap(e.source, 60), cap(e.message, 4000), cap(e.stack, 20000), ctx]
+  );
+}
+
+export interface ErrorRow {
+  id: number;
+  ts: string;
+  app_version: string;
+  platform: string;
+  user_email: string;
+  source: string;
+  message: string;
+  stack: string;
+}
+
+/** Recent errors (admin view / for triage). */
+export async function listErrors(limit = 100): Promise<ErrorRow[]> {
+  const pool = await getPool();
+  const r = await pool.query(
+    `SELECT id, ts, app_version, platform, user_email, source, message, stack FROM app_errors ORDER BY ts DESC LIMIT $1`,
+    [Math.min(Math.max(limit, 1), 500)]
+  );
+  return r.rows as ErrorRow[];
 }
 
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
