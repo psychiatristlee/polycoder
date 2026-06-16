@@ -809,6 +809,9 @@ function texToHtml(src){
   // mark lists with sentinels that survive escaping
   b=b.replace(/\\begin\{itemize\}([\s\S]*?)\\end\{itemize\}/g,(m,x)=>"\n\nUL"+x.replace(/\n\s*\n/g,"\n")+"E\n\n")
      .replace(/\\begin\{enumerate\}([\s\S]*?)\\end\{enumerate\}/g,(m,x)=>"\n\nOL"+x.replace(/\n\s*\n/g,"\n")+"E\n\n");
+  // Put each sectioning command on its own block — LaTeX doesn't require a blank line before
+  // \section/\subsection, but the block splitter does, so otherwise it leaks as literal text.
+  b=b.replace(/[ \t]*(\\(?:sub)*section\*?\{[^}]*\})[ \t]*/g,"\n\n$1\n\n");
   b=esc(b);
   const inl=(t)=>t
     .replace(/\\textbf\{([^}]*)\}/g,"<strong>$1</strong>")
