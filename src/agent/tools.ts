@@ -474,6 +474,15 @@ export async function executeTool(name: string, argsJson: string, ctx: ToolConte
   } catch {
     return { result: `Error: could not parse arguments: ${argsJson}` };
   }
+  // Tolerate the argument-name variants small local models emit interchangeably (filename/file→path,
+  // text/code→content, cmd/script→command, q→query) so a valid call isn't dropped over a key alias.
+  const alias = (canonical: string, ...names: string[]) => {
+    if (args[canonical] == null) for (const n of names) if (args[n] != null) { args[canonical] = args[n]; break; }
+  };
+  alias("path", "filename", "file", "filepath", "file_path");
+  alias("content", "text", "code", "body", "data", "contents");
+  alias("command", "cmd", "script", "shell");
+  alias("query", "q", "search");
 
   try {
     switch (name) {
