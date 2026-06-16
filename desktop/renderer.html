@@ -1122,7 +1122,14 @@ window.poly.onEvent((e)=>{
       break;
   }
 });
+// Test hook: stream a markdown message through the REAL chat path (textDelta in chunks →
+// finalizeMd renders math/mermaid/code), exactly like a live assistant response.
+function simulateChat(md){ userMsg("스트리밍 채팅 렌더 테스트"); assistantStart();
+  const chunks = md.match(/[\s\S]{1,24}/g) || [md]; let i=0;
+  (function feed(){ if(i<chunks.length){ textDelta(chunks[i++]); setTimeout(feed,25); } else finalizeMd(); })();
+}
 window.poly.onAuto((a)=>{ setCwd(a.cwd); if(a.cwd) bindFolderConv(a.cwd); if(a.goal) ta.value=a.goal; shotPath=a.shot||"";
+  if(a.testChat){ setTimeout(()=>simulateChat(a.testChat),700); }   // test hook: drive chat-streaming render
   if(a.view==="supervise"){ setSupMode(true);
     const s=a.sup||{};
     if(s.agent){ $("sup-agent").value=s.agent; $("sup-cmd").hidden=s.agent!=="cmd"; }

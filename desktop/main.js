@@ -273,6 +273,7 @@ function createWindow() {
         run: !!process.env.POLY_AUTORUN,
         preview: process.env.POLY_PREVIEW || "",
         testExport: !!process.env.POLY_TEST_EXPORT,   // test hook: auto-trigger PDF export of the preview
+        testChat: (() => { try { return process.env.POLY_TEST_CHAT ? fs.readFileSync(process.env.POLY_TEST_CHAT, "utf8") : ""; } catch { return ""; } })(),   // test hook: stream this markdown through the chat path
         view: process.env.POLY_VIEW || "",
         sup: {
           agent: process.env.POLY_SUP_AGENT || "",
