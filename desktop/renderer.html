@@ -106,7 +106,8 @@
   .chatmd pre code{background:none;padding:0}
   .chatmd pre .hc{color:#8a9a7a;font-style:italic}.chatmd pre .hs{color:#a9863f}.chatmd pre .hn{color:#5e6b88}.chatmd pre .hk{color:#6e2436;font-weight:600}
   .chatmd blockquote{border-left:3px solid var(--accent);padding:2px 0 2px 12px;color:#6a6258;margin:.6em 0}
-  .chatmd table{border-collapse:collapse;margin:.5em 0;font-size:13.5px}.chatmd td,.chatmd th{border:1px solid var(--border);padding:5px 10px}.chatmd th{background:var(--code);color:var(--accent2)}
+  .chatmd .tablewrap{overflow-x:auto;max-width:100%;margin:.5em 0}
+  .chatmd table{border-collapse:collapse;margin:0;font-size:13.5px}.chatmd td,.chatmd th{border:1px solid var(--border);padding:5px 10px}.chatmd th{background:var(--code);color:var(--accent2)}
   .chatmd a{color:var(--gold)} .chatmd del{color:#9a8f80} .chatmd hr{border:0;border-top:1px solid var(--border);margin:1em 0}
   .chatmd img{max-width:100%;border-radius:8px} .chatmd .mermaid{text-align:center;margin:.8em 0} .chatmd .mermaid svg{max-width:100%;height:auto}
   .status{font-size:13px;color:var(--mut);display:flex;align-items:center;gap:8px;margin:4px 0}
@@ -346,7 +347,8 @@
   .pvbody table.grid{border-collapse:collapse;margin:0;font-size:13.5px;width:100%}
   .pvbody table.grid td,.pvbody table.grid th{border:1px solid var(--border);padding:7px 13px;text-align:left}
   .pvbody table.grid th,.pvbody table.grid tr:first-child td{background:var(--code);color:var(--accent2);font-weight:600}
-  .pvbody .md table{border-collapse:collapse;margin:.6em 0}.pvbody .md td,.pvbody .md th{border:1px solid var(--border);padding:6px 12px}.pvbody .md th{background:var(--code);color:var(--accent2)}
+  .pvbody .md .tablewrap{overflow-x:auto;max-width:100%;margin:.6em 0}
+  .pvbody .md table{border-collapse:collapse;margin:0}.pvbody .md td,.pvbody .md th{border:1px solid var(--border);padding:6px 12px}.pvbody .md th{background:var(--code);color:var(--accent2)}
   .pvbody .gridwrap{padding:22px 24px}
   .pvbody .gridwrap .sheetname{font-family:Georgia,serif;color:var(--accent2);font-weight:600;margin:0 0 10px}
   .pvbody .svgwrap{padding:26px;display:flex;justify-content:center;align-items:flex-start;min-height:100%;overflow:auto}
@@ -731,7 +733,7 @@ function mdToHtml(md){
       // GFM column alignment from the separator row (:--- left, :---: center, ---: right)
       const aligns=cells(rows[1]).map(s=>{ const x=s.trim(),L=/^:/.test(x),R=/:$/.test(x); return L&&R?"center":(R?"right":(L?"left":"")); });
       const al=(ci)=>aligns[ci]?' style="text-align:'+aligns[ci]+'"':"";
-      let t="<table><thead><tr>"+cells(rows[0]).map((h,ci)=>"<th"+al(ci)+">"+inline(h)+"</th>").join("")+"</tr></thead><tbody>";for(const r of rows.slice(2))t+="<tr>"+cells(r).map((c,ci)=>"<td"+al(ci)+">"+inline(c)+"</td>").join("")+"</tr>";out.push(t+"</tbody></table>");continue;}
+      let t="<table><thead><tr>"+cells(rows[0]).map((h,ci)=>"<th"+al(ci)+">"+inline(h)+"</th>").join("")+"</tr></thead><tbody>";for(const r of rows.slice(2))t+="<tr>"+cells(r).map((c,ci)=>"<td"+al(ci)+">"+inline(c)+"</td>").join("")+"</tr>";out.push('<div class="tablewrap">'+t+"</tbody></table></div>");continue;}
     if(/^\s*$/.test(l)){i++;continue;}
     const para=[l];i++;while(i<lines.length&&!/^\s*$/.test(lines[i])&&!/^(#{1,6}\s|```|\s*[-*]\s|\s*\d+\.\s|\s*>|\s*\|)/.test(lines[i])){para.push(lines[i]);i++;}out.push("<p>"+inline(para.join(" "))+"</p>");
   }

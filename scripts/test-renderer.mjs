@@ -108,6 +108,7 @@ const at = mdToHtml("| L | C | R |\n|:---|:---:|---:|\n| a | b | c |");
 ok("table align left", /<th style="text-align:left">L<\/th>/.test(at));
 ok("table align center", /text-align:center">C<\/th>/.test(at) && /text-align:center">b<\/td>/.test(at));
 ok("table align right", /text-align:right">R<\/th>/.test(at) && /text-align:right">c<\/td>/.test(at));
+ok("table wrapped in scroll container", /<div class="tablewrap"><table>/.test(at));
 
 // bare-URL autolinking (without double-linking existing links or code-span URLs)
 ok("autolink bare url", /<a href="https:\/\/example\.com">https:\/\/example\.com<\/a>/.test(mdToHtml("방문 https://example.com 하세요")));
