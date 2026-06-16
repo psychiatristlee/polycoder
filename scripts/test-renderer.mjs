@@ -87,5 +87,15 @@ ok("task list checkboxes", tl.includes('type="checkbox" disabled checked') && tl
 // tex renders without throwing
 ok("tex renders", typeof texToHtml("\\begin{document}\ninline $a_i$ text\n\\[ b^2 \\]\n\\end{document}") === "string");
 
+// interactive-HTML self-containment detection (multi-file → static; self-contained → sandboxed JS)
+const needsLocal = ctx.htmlNeedsLocalFiles;
+ok("htmlNeedsLocalFiles defined", typeof needsLocal === "function");
+ok("self-contained inline", needsLocal("<html><script>x()</script><style>a{}</style></html>") === false);
+ok("cdn = self-contained", needsLocal('<script src="https://cdn/x.js"></script>') === false);
+ok("relative js = needs local", needsLocal('<script src="app.js"></script>') === true);
+ok("relative css = needs local", needsLocal('<link rel="stylesheet" href="style.css">') === true);
+ok("relative img = needs local", needsLocal('<img src="pics/a.png">') === true);
+ok("data uri = self-contained", needsLocal('<img src="data:image/png;base64,AA">') === false);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

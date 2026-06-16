@@ -871,8 +871,30 @@ function resolveRelativeRefs(root){ const dir=(pvCurrent.path||"").replace(/[\/\
   root.querySelectorAll("img[src],a[href]").forEach(el=>{ const attr=el.hasAttribute("src")?"src":"href"; const v=el.getAttribute(attr)||"";
     if(/^(https?:|data:|file:|mailto:|#|\/)/i.test(v)||v==="#") return;
     el.setAttribute(attr, fileUrl(dir+"/"+v)); }); }
+// True if the HTML pulls in LOCAL relative <script>/<link>/<img> files (a multi-file project) —
+// such pages need same-origin file:// loading; a self-contained artifact (inline or CDN assets)
+// can run interactively in a locked-down sandbox instead.
+function htmlNeedsLocalFiles(html){
+  const re=/<(?:script|link|img)\b[^>]*?\b(?:src|href)\s*=\s*["']([^"']+)["']/gi; let m;
+  while((m=re.exec(html))){ const u=(m[1]||"").trim();
+    if(u && !/^(https?:|data:|\/\/|#|file:|\/)/i.test(u)) return true; }
+  return false;
+}
 function pvRenderPreview(){ const body=$("pvbody"), ext=pvCurrent.ext, c=pvCurrent.content;
-  if(ext==="html"||ext==="htm"){ body.innerHTML='<iframe src="'+fileUrl(pvCurrent.path)+'" sandbox="allow-same-origin"></iframe>'; return; }
+  if(ext==="html"||ext==="htm"){
+    if(htmlNeedsLocalFiles(c)){
+      // Multi-file project: load from disk so sibling CSS/JS/images resolve. Static (no scripts) for
+      // safety — full interactivity is available via the ▶ 웹 실행 button (real browser).
+      body.innerHTML='<iframe src="'+fileUrl(pvCurrent.path)+'" sandbox="allow-same-origin"></iframe>';
+    } else {
+      // Self-contained artifact (Claude-style): run it INTERACTIVELY. allow-scripts WITHOUT
+      // allow-same-origin gives an opaque origin — JS/canvas/CDN libs work, but it cannot reach the
+      // parent renderer, window.poly, cookies, or file:// siblings. As a real file:// document it has
+      // its own CSP context, so the parent's strict CSP doesn't block CDN <script>/fetch.
+      body.innerHTML='<iframe src="'+fileUrl(pvCurrent.path)+'" sandbox="allow-scripts allow-popups allow-forms allow-modals"></iframe>';
+    }
+    return;
+  }
   if(ext==="svg"){ const clean=sanitizeSvg(c);
     body.innerHTML = clean ? '<div class="svgwrap">'+clean+'</div>'
       : '<pre class="raw">'+esc(c||"(빈 SVG)")+'</pre>'; return; }
