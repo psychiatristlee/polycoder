@@ -158,24 +158,48 @@ export function repairJson(s: string): string {
   return out.replace(/,(\s*[}\]])/g, "$1"); // trailing commas before } or ]
 }
 
-export function parseTextToolCall(content: string): ToolCall | null {
-  if (!content) return null;
-  const json = extractJson(content);
-  if (!json) return null;
-  let obj: any;
-  try {
-    obj = JSON.parse(json);
-  } catch {
-    try { obj = JSON.parse(repairJson(json)); } catch { return null; } // recover common LLM JSON typos
+// Yield every balanced top-level {...} object in `s` (string/escape-aware so braces inside string
+// values don't break matching). Small local models often wrap the tool-call JSON in prose, emit a
+// ```swift/```bash code block BEFORE the ```json tool call, or stack several objects — so we can't
+// just grab the first `{`.
+function* allJsonObjects(s: string): Generator<string> {
+  for (let start = s.indexOf("{"); start !== -1; start = s.indexOf("{", start + 1)) {
+    let depth = 0, inStr = false;
+    for (let i = start; i < s.length; i++) {
+      const ch = s[i];
+      if (inStr) { if (ch === "\\") { i++; continue; } if (ch === '"') inStr = false; continue; }
+      if (ch === '"') inStr = true;
+      else if (ch === "{") depth++;
+      else if (ch === "}") { depth--; if (depth === 0) { yield s.slice(start, i + 1); break; } }
+    }
   }
+}
+
+const toToolCall = (obj: any): ToolCall | null => {
   const name = obj?.name ?? obj?.tool ?? obj?.function?.name;
   if (typeof name !== "string" || !KNOWN_TOOLS.has(name)) return null;
-  const args = obj.arguments ?? obj.parameters ?? obj.function?.arguments ?? {};
-  return {
-    id: `textcall_${name}`,
-    type: "function",
-    function: { name, arguments: typeof args === "string" ? args : JSON.stringify(args) },
-  };
+  const args = obj.arguments ?? obj.parameters ?? obj.function?.arguments ?? obj.args ?? {};
+  return { id: `textcall_${name}`, type: "function", function: { name, arguments: typeof args === "string" ? args : JSON.stringify(args) } };
+};
+
+export function parseTextToolCall(content: string): ToolCall | null {
+  if (!content) return null;
+  // Candidates, most-likely-to-be-the-tool-call first: ```json fences, then any code fence, then
+  // the whole text. For each, scan EVERY balanced {…} object (with JSON repair) and return the
+  // first that is a known tool call — so a leading ```swift block can't hide the real ```json call.
+  const candidates: string[] = [];
+  for (const m of content.matchAll(/```json\s*([\s\S]*?)```/gi)) candidates.push(m[1]);
+  for (const m of content.matchAll(/```[a-z0-9]*\s*([\s\S]*?)```/gi)) candidates.push(m[1]);
+  candidates.push(content);
+  for (const cand of candidates) {
+    for (const objStr of allJsonObjects(cand)) {
+      let obj: any;
+      try { obj = JSON.parse(objStr); } catch { try { obj = JSON.parse(repairJson(objStr)); } catch { continue; } }
+      const call = toToolCall(obj);
+      if (call) return call;
+    }
+  }
+  return null;
 }
 
 export interface ToolContext {
