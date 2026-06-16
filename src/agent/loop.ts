@@ -143,7 +143,15 @@ function detectProject(dir: string): string | null {
 // A cheap, bounded snapshot of the working directory injected into the planner + step prompts so
 // the agent knows what already exists (empty → scaffold in place; existing project → work within
 // it / cd into the right subdir) instead of planning blind and re-scaffolding. Recomputed per use.
-function dirSnapshot(cwd: string): string | undefined {
+// Does the goal call for a JS/TS web app (where `create-next-app` is the right scaffold), vs a
+// native/other stack (SwiftUI, Android/Kotlin, Python, Go, …) where forcing create-next-app derails
+// the agent into building the wrong thing?
+function isWebGoal(goal: string): boolean {
+  const g = (goal || "").toLowerCase();
+  if (/\b(swiftui|swift|ios|xcode|kotlin|android|jetpack|compose|flutter|dart|python|django|flask|fastapi|\.py\b|golang|\bgo\b|rust|cargo|java\b|\.swift|\.kt)\b/.test(g)) return false;
+  return /\b(next\.?js|nextjs|react|vue|svelte|angular|vite|web ?(site|app|page|app)|webpage|html|css|tailwind|frontend|landing|웹|사이트|페이지|랜딩|홈페이지)\b/.test(g);
+}
+function dirSnapshot(cwd: string, goal = ""): string | undefined {
   try {
     // Emptiness is judged on the FULL listing minus known noise — a dir holding only hidden
     // entries (.git, .DS_Store, .github, …) is NOT empty: scaffolding over it would clobber an
@@ -161,7 +169,10 @@ function dirSnapshot(cwd: string): string | undefined {
       if (hasGit) {
         return "WORKING DIRECTORY is an existing (currently empty) git repository. Build the project IN PLACE here but do NOT run `git init` again; scaffolding tools that refuse a .git directory should target `.`.";
       }
-      return "WORKING DIRECTORY is EMPTY. Scaffold the project IN PLACE here (e.g. `npx --yes create-next-app@latest . --ts --eslint --app --tailwind --use-npm --no-src-dir --no-import-alias --yes`) so later build/edit commands land in the right place.";
+      if (isWebGoal(goal)) {
+        return "WORKING DIRECTORY is EMPTY. Scaffold the web project IN PLACE here (e.g. `npx --yes create-next-app@latest . --ts --eslint --app --tailwind --use-npm --no-src-dir --no-import-alias --yes`) so later build/edit commands land in the right place.";
+      }
+      return "WORKING DIRECTORY is EMPTY. Create the project IN PLACE here using the tools and file structure that match THE GOAL's stack — do NOT run create-next-app unless the goal is a Next.js/React web app. For SwiftUI/iOS write Swift source files (e.g. App.swift) and build with xcrun/swiftc; for Kotlin/Android use the Gradle layout; for Python write .py files; etc. Put files directly in the current directory.";
     }
     const here = detectProject(cwd);
     let note = "";
@@ -237,7 +248,7 @@ export async function runAgent(
   let plan: Plan;
   if (planRoute) {
     try {
-      plan = await planRequest(goal, client, planRoute.model, (r) => logUsage(r, "plan"), mergeCtx(skillContext, dirSnapshot(cwd)));
+      plan = await planRequest(goal, client, planRoute.model, (r) => logUsage(r, "plan"), mergeCtx(skillContext, dirSnapshot(cwd, goal)));
     } catch {
       plan = heuristicPlan(goal);
     }
@@ -492,7 +503,7 @@ async function runStep(
     tried.add(model.id);
     emit({ type: "step-start", step, model, estCostUsd: 0, explored: i === 0 && !!explore?.explored });
     const messages: ChatMessage[] = [
-      { role: "system", content: stepSystemPrompt(goal, step, priorSummaries, model.capabilities.tools, deps.ask != null, mergeCtx(skillContext, dirSnapshot(toolCtx.cwd))) },
+      { role: "system", content: stepSystemPrompt(goal, step, priorSummaries, model.capabilities.tools, deps.ask != null, mergeCtx(skillContext, dirSnapshot(toolCtx.cwd, goal))) },
       { role: "user", content: step.description },
     ];
     loop = await runToolLoop(model, messages, step.type, rungDef, deps, toolCtx, emit, logUsage);
@@ -796,7 +807,7 @@ ${askEnabled
   : "- AUTONOMOUS — NEVER ASK: there is no interactive user. NEVER wait for permission or clarification. Always pick the most sensible default, state the assumption briefly, and keep going until the goal is fully done."}
 - COMMANDS MUST BE NON-INTERACTIVE: pass flags so scaffolders don't prompt (e.g. \`npx --yes create-next-app@latest <name> --ts --eslint --app --tailwind --use-npm --no-src-dir --no-import-alias --yes\`). A command that waits for input will be killed.
 - WORKING DIRECTORY IS FIXED: every run_command starts in the SAME --cwd; \`cd\` does NOT persist between commands and there is no cd tool. To act in a subfolder, chain it in ONE command: \`cd <dir> && <command>\` (Windows: \`cd /d <dir> && <command>\`). Likewise read_file/write_file/list_dir paths are relative to that fixed cwd.
-- SCAFFOLD IN PLACE: prefer creating the project in the CURRENT directory — \`create-next-app .\` when the cwd is empty — so later \`npm run build\`/edits land in the right place. If a subdir already contains the project, run all later commands as \`cd <dir> && …\`. Check with list_dir before scaffolding; if the project already exists, do NOT scaffold again (re-running create-next-app errors with "directory not empty").
+- SCAFFOLD IN PLACE, FOR THE RIGHT STACK: create the project in the CURRENT directory using the toolchain THE GOAL requires — \`create-next-app .\` ONLY for a Next.js/React web app; for SwiftUI/iOS write Swift files + build with xcrun/swiftc, for Kotlin/Android use Gradle, for Python write .py files, etc. Do NOT default to create-next-app for non-web goals. If a subdir already contains the project, run later commands as \`cd <dir> && …\`. Check with list_dir before scaffolding; never re-scaffold an existing project.
 - NEVER run a dev server as a step: \`npm run dev\`/\`next dev\`/\`vite\`/\`serve\` never exit. To VERIFY the app, run \`npm run build\` (and \`npm test\` if present), not the dev server.
 - ONE project only, in ONE directory. Respect its router — App Router uses \`app/\`, Pages Router uses \`pages/\`; never mix the two (don't add \`pages/\` files to an \`app/\` project).
 - Call \`finish\` with a one-line summary when the objective is truly met.
