@@ -778,8 +778,8 @@ function texToHtml(src){
      .replace(/\$([^$\n]+?)\$/g,(m,x)=>"\\("+x+"\\)")
      .replace(/\x00D\x00/g,"$");
   // mark lists with sentinels that survive escaping
-  b=b.replace(/\\begin\{itemize\}([\s\S]*?)\\end\{itemize\}/g,(m,x)=>"\n\nUL"+x+"E\n\n")
-     .replace(/\\begin\{enumerate\}([\s\S]*?)\\end\{enumerate\}/g,(m,x)=>"\n\nOL"+x+"E\n\n");
+  b=b.replace(/\\begin\{itemize\}([\s\S]*?)\\end\{itemize\}/g,(m,x)=>"\n\nUL"+x.replace(/\n\s*\n/g,"\n")+"E\n\n")
+     .replace(/\\begin\{enumerate\}([\s\S]*?)\\end\{enumerate\}/g,(m,x)=>"\n\nOL"+x.replace(/\n\s*\n/g,"\n")+"E\n\n");
   b=esc(b);
   const inl=(t)=>t
     .replace(/\\textbf\{([^}]*)\}/g,"<strong>$1</strong>")
