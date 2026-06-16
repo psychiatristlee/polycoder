@@ -103,5 +103,11 @@ ok("table 2 data cells per row (pipe-safe)", (tbl.match(/<td>/g) || []).length =
 ok("table code-pipe kept in one cell", /<td><code>a \| b<\/code><\/td>/.test(tbl));
 ok("table escaped-pipe literal", /<td>c \| d<\/td>/.test(tbl));
 
+// GFM column alignment from the separator row
+const at = mdToHtml("| L | C | R |\n|:---|:---:|---:|\n| a | b | c |");
+ok("table align left", /<th style="text-align:left">L<\/th>/.test(at));
+ok("table align center", /text-align:center">C<\/th>/.test(at) && /text-align:center">b<\/td>/.test(at));
+ok("table align right", /text-align:right">R<\/th>/.test(at) && /text-align:right">c<\/td>/.test(at));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

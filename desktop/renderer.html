@@ -714,7 +714,11 @@ function mdToHtml(md){
           else if(ch==="\\"&&s[k+1]==="|"){ cur+="|"; k++; }   // escaped \| → literal pipe, not a column break
           else if(ch==="|"&&!code){ out.push(cur.trim()); cur=""; }   // unescaped pipe outside code = column break
           else cur+=ch; }
-        out.push(cur.trim()); return out; };let t="<table><thead><tr>"+cells(rows[0]).map(h=>"<th>"+inline(h)+"</th>").join("")+"</tr></thead><tbody>";for(const r of rows.slice(2))t+="<tr>"+cells(r).map(c=>"<td>"+inline(c)+"</td>").join("")+"</tr>";out.push(t+"</tbody></table>");continue;}
+        out.push(cur.trim()); return out; };
+      // GFM column alignment from the separator row (:--- left, :---: center, ---: right)
+      const aligns=cells(rows[1]).map(s=>{ const x=s.trim(),L=/^:/.test(x),R=/:$/.test(x); return L&&R?"center":(R?"right":(L?"left":"")); });
+      const al=(ci)=>aligns[ci]?' style="text-align:'+aligns[ci]+'"':"";
+      let t="<table><thead><tr>"+cells(rows[0]).map((h,ci)=>"<th"+al(ci)+">"+inline(h)+"</th>").join("")+"</tr></thead><tbody>";for(const r of rows.slice(2))t+="<tr>"+cells(r).map((c,ci)=>"<td"+al(ci)+">"+inline(c)+"</td>").join("")+"</tr>";out.push(t+"</tbody></table>");continue;}
     if(/^\s*$/.test(l)){i++;continue;}
     const para=[l];i++;while(i<lines.length&&!/^\s*$/.test(lines[i])&&!/^(#{1,6}\s|```|\s*[-*]\s|\s*\d+\.\s|\s*>|\s*\|)/.test(lines[i])){para.push(lines[i]);i++;}out.push("<p>"+inline(para.join(" "))+"</p>");
   }
