@@ -117,5 +117,12 @@ ok("url in code span not autolinked", !/<code><a/.test(mdToHtml("`https://incode
 
 ok("mdToHtml strips leading BOM (heading renders)", /<h1>제목<\/h1>/.test(mdToHtml("\uFEFF# 제목")));
 
+// blockquote: nested quotes + internal structure (list, multi-paragraph) preserved
+const bq = mdToHtml("> outer\n> > inner");
+ok("nested blockquote", /<blockquote>[\s\S]*<blockquote>[\s\S]*inner[\s\S]*<\/blockquote>[\s\S]*<\/blockquote>/.test(bq));
+const bql = mdToHtml("> note\n>\n> - one\n> - two");
+ok("blockquote contains list", /<blockquote>[\s\S]*<ul>[\s\S]*one[\s\S]*<\/ul>[\s\S]*<\/blockquote>/.test(bql));
+ok("blockquote multi-paragraph", (mdToHtml("> p1\n>\n> p2").match(/<p>/g) || []).length >= 2);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
