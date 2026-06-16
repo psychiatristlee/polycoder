@@ -102,6 +102,8 @@
   .chatmd li{margin:.15em 0}
   .chatmd li.task{list-style:none;margin-left:-1.2em}.chatmd li.task input{margin-right:6px;vertical-align:-1px}
   .chatmd pre{background:var(--code);border:1px solid var(--border);border-radius:9px;padding:11px 13px;overflow:auto;position:relative;margin:.5em 0}
+  .chatmd pre[data-lang]{padding-top:27px}
+  .chatmd pre[data-lang]::before{content:attr(data-lang);position:absolute;top:7px;left:13px;font:10.5px/1 ui-monospace,Menlo,monospace;color:var(--mut);text-transform:lowercase;letter-spacing:.04em;pointer-events:none}
   .chatmd code{background:var(--code);padding:1px 5px;border-radius:5px;font-family:ui-monospace,Menlo,monospace;font-size:13px}
   .chatmd pre code{background:none;padding:0}
   .chatmd pre .hc{color:#8a9a7a;font-style:italic}.chatmd pre .hs{color:#a9863f}.chatmd pre .hn{color:#5e6b88}.chatmd pre .hk{color:#6e2436;font-weight:600}
@@ -327,6 +329,8 @@
   .pvbody .md h1{font-size:27px}.pvbody .md h2{font-size:21px}.pvbody .md h3{font-size:17px}
   .pvbody .md h1,.pvbody .md h2,.pvbody .md h3{font-family:Georgia,serif;color:var(--accent2);margin:1.3em 0 .45em;line-height:1.3}
   .pvbody .md pre{background:var(--code);padding:13px 15px;border-radius:9px;overflow:auto;border:1px solid var(--border);position:relative}
+  .pvbody .md pre[data-lang]{padding-top:30px}
+  .pvbody .md pre[data-lang]::before{content:attr(data-lang);position:absolute;top:8px;left:15px;font:11px/1 ui-monospace,Menlo,monospace;color:var(--mut);text-transform:lowercase;letter-spacing:.04em;pointer-events:none}
   .pvbody .copybtn,.pvbody pre.raw .copybtn{position:absolute;top:7px;right:7px;border:1px solid var(--border2);background:var(--card);color:var(--mut);font-size:11px;padding:2px 9px;border-radius:7px;opacity:0;transition:opacity .12s}
   .pvbody pre:hover .copybtn{opacity:.92}
   .pvbody .copybtn:hover{border-color:var(--accent);color:var(--accent)}
@@ -701,7 +705,7 @@ function mdToHtml(md){
   while(i<lines.length){ let l=lines[i];
     if(/^```/.test(l)){const fence=l.match(/^```+\s*([\w-]*)/);const lang=fence?fence[1]:"";const buf=[];i++;while(i<lines.length&&!/^```/.test(lines[i])){buf.push(lines[i]);i++;}i++;
       if(/^mermaid$/i.test(lang)) out.push('<div class="mermaid">'+esc(buf.join("\n"))+'</div>');
-      else out.push('<pre><code class="lang-'+esc(lang)+'">'+highlightCode(buf.join("\n"),lang)+"</code></pre>");
+      else out.push('<pre'+(lang?' data-lang="'+esc(lang)+'"':'')+'><code class="lang-'+esc(lang)+'">'+highlightCode(buf.join("\n"),lang)+"</code></pre>");
       continue;}
     // Block display math: a line opening with $$ or \[ — consume (across blank lines) until the
     // matching close, render once, so the paragraph splitter can't break it into unbalanced halves.

@@ -125,5 +125,9 @@ const bql = mdToHtml("> note\n>\n> - one\n> - two");
 ok("blockquote contains list", /<blockquote>[\s\S]*<ul>[\s\S]*one[\s\S]*<\/ul>[\s\S]*<\/blockquote>/.test(bql));
 ok("blockquote multi-paragraph", (mdToHtml("> p1\n>\n> p2").match(/<p>/g) || []).length >= 2);
 
+// code block language label
+ok("code block has language label", /<pre data-lang="python"><code class="lang-python">/.test(mdToHtml("```python\nx=1\n```")));
+ok("code block without lang has no data-lang", !/data-lang/.test(mdToHtml("```\nplain\n```")));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
