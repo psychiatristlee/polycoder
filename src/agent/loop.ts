@@ -145,13 +145,22 @@ function detectProject(dir: string): string | null {
 // it / cd into the right subdir) instead of planning blind and re-scaffolding. Recomputed per use.
 function dirSnapshot(cwd: string): string | undefined {
   try {
-    const entries = fs
-      .readdirSync(cwd, { withFileTypes: true })
+    // Emptiness is judged on the FULL listing minus known noise — a dir holding only hidden
+    // entries (.git, .DS_Store, .github, …) is NOT empty: scaffolding over it would clobber an
+    // existing repo. A .git directory specifically means "existing repo — never scaffold".
+    const NOISE = new Set([".DS_Store", ".svn", ".hg", "Thumbs.db", "node_modules", ".git"]);
+    const all = fs.readdirSync(cwd, { withFileTypes: true });
+    const hasGit = all.some((d) => d.name === ".git");
+    const meaningful = all.filter((d) => !NOISE.has(d.name));
+    const entries = meaningful
       .filter((d) => !d.name.startsWith(".") || d.name === ".env" || d.name === ".gitignore")
       .slice(0, 50)
       .map((d) => (d.isDirectory() ? d.name + "/" : d.name))
       .sort();
-    if (!entries.length) {
+    if (!meaningful.length) {
+      if (hasGit) {
+        return "WORKING DIRECTORY is an existing (currently empty) git repository. Build the project IN PLACE here but do NOT run `git init` again; scaffolding tools that refuse a .git directory should target `.`.";
+      }
       return "WORKING DIRECTORY is EMPTY. Scaffold the project IN PLACE here (e.g. `npx --yes create-next-app@latest . --ts --eslint --app --tailwind --use-npm --no-src-dir --no-import-alias --yes`) so later build/edit commands land in the right place.";
     }
     const here = detectProject(cwd);
@@ -162,6 +171,10 @@ function dirSnapshot(cwd: string): string | undefined {
       for (const e of entries.filter((x) => x.endsWith("/")).map((x) => x.slice(0, -1))) {
         const sub = detectProject(path.join(cwd, e));
         if (sub) { note = `\nThe project lives in the subdirectory ./${e} (a ${sub} project); the working directory itself has no package.json. Prefix every command with \`cd ${e} && …\` and target files under ${e}/.`; break; }
+      }
+      if (!note) {
+        // Non-empty but no JS/TS project detected (static site, Python, Go, Rust, docs, …).
+        note = `\nThe working directory is NOT empty but has no detected JS/TS project. Do NOT scaffold a new project over the existing files — inspect them and work within whatever stack they belong to.`;
       }
     }
     return `WORKING DIRECTORY contents (the agent's FIXED --cwd; read_file/write_file/list_dir paths are relative to it):\n${entries.join("  ")}${note}`;

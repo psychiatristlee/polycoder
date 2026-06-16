@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("poly", {
   status: () => ipcRenderer.invoke("status"),
   pickFolder: () => ipcRenderer.invoke("pick-folder"),
+  setCwd: (dir) => ipcRenderer.invoke("set-cwd", dir),
   saveKey: (k) => ipcRenderer.invoke("save-key", k),
   listFiles: (dir) => ipcRenderer.invoke("list-files", dir),
   readFile: (file) => ipcRenderer.invoke("read-file", file),

@@ -49,10 +49,13 @@ export function classifyGoalType(goal: string): GoalType {
 // answers conversationally instead of inventing a coding project (e.g. "오픈라우터 키 이용해봐"
 // must NOT trigger a 5-step plan that writes a fake .env). Conservative: ANY build intent or a
 // long request disqualifies it, so real coding tasks are never swallowed.
+// English tokens are \b-anchored so substrings don't false-match ("app" inside "happen",
+// "add" inside "address") — that would wrongly route a meta question ("why did that happen")
+// into a 5-step coding plan. Korean tokens need no boundaries.
 const BUILD_INTENT =
-  /(만들|구현|추가|작성|생성|고쳐|수정|개발|짜(줘|봐)|클론|스캐폴|build|create|implement|add|write|make|scaffold|set ?up|fix|refactor|install|deploy|render|그려|그래프|차트|페이지|컴포넌트|함수|파일|api|앱|app|website|사이트)/i;
+  /(만들|구현|추가|작성|생성|고쳐|수정|개발|짜(줘|봐)|클론|스캐폴|그려|그래프|차트|페이지|컴포넌트|함수|파일|앱|사이트)|\b(build|create|implement|add|write|make|scaffold|set ?up|fix|refactor|install|deploy|render|api|app|website)\b/i;
 const QUESTION_OR_META =
-  /[?？]\s*$|^\s*(왜|뭐|무엇|어떻게|어디|언제|누가|what|why|how|where|when|which|who|can you|do you|does it|is it|are you)\b|(이용해|사용해|써\s*봐|이게\s*뭐|설명|알려줘|보여줘|뭐가\s*있|할\s*수\s*있|가능해|되나|돼\?)/i;
+  /[?？]\s*$|^\s*(왜|뭐|무엇|어떻게|어디|언제|누가|what|why|how|where|when|which|who|can you|do you|does it|is it|are you)\b|(이용해|사용해|써\s*봐|이게\s*뭐|설명|알려줘|보여줘|뭐가\s*있|할\s*수\s*있|가능해|되나|돼\?)|\b(use|using|try)\s+(the|my|saved|stored|your)\s+(key|api ?key|config|settings)\b/i;
 export function isConversational(goal: string): boolean {
   const g = (goal || "").trim();
   if (!g || g.length > 60) return false;

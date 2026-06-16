@@ -247,7 +247,21 @@ function createWindow() {
     height: 800,
     title: "polyrun",
     backgroundColor: "#f7f2ea",
-    webPreferences: { preload: path.join(__dirname, "preload.js") },
+    // Lock the Electron security defaults explicitly: isolated context, no Node in the renderer,
+    // sandboxed (preload uses only contextBridge+ipcRenderer, so sandbox is safe). webSecurity on.
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+    },
+  });
+  // Never let renderer content open new windows or navigate away from the app shell — a defense
+  // backstop against an injected javascript:/external URL escaping the renderer.
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  win.webContents.on("will-navigate", (e, url) => {
+    if (!url.startsWith("file://")) e.preventDefault();
   });
   win.loadFile(path.join(__dirname, "renderer.html"));
   win.webContents.on("did-finish-load", () => {
@@ -387,10 +401,30 @@ function dialogParent() {
   }
   return w && !w.isDestroyed() ? w : undefined;
 }
+// --- File-access confinement -------------------------------------------------------------------
+// Renderer-driven file reads are restricted to the user-approved working folder (set via
+// pick-folder, set-cwd for remembered folders, or POLY_AUTOCWD), so a renderer bug can't read
+// arbitrary paths like ~/.config/polymath/config.json or ~/.ssh.
+let approvedCwd = null;
+function approveCwd(dir) {
+  try { if (dir && fs.existsSync(dir) && fs.statSync(dir).isDirectory()) approvedCwd = fs.realpathSync(dir); } catch {}
+}
+function withinCwd(p) {
+  if (!approvedCwd || !p) return false;
+  try {
+    let rp;
+    try { rp = fs.realpathSync(path.resolve(String(p))); } catch { rp = path.resolve(String(p)); } // target may not exist yet (export)
+    return rp === approvedCwd || rp.startsWith(approvedCwd + path.sep);
+  } catch { return false; }
+}
+approveCwd(process.env.POLY_AUTOCWD);
+ipcMain.handle("set-cwd", (_e, dir) => { approveCwd(dir); return !!approvedCwd; });
 ipcMain.handle("pick-folder", async () => {
   try {
     const r = await dialog.showOpenDialog(dialogParent(), { properties: ["openDirectory", "createDirectory"] });
-    return r.canceled ? null : r.filePaths[0];
+    if (r.canceled) return null;
+    approveCwd(r.filePaths[0]);
+    return r.filePaths[0];
   } catch (e) {
     console.error("pick-folder failed:", e);
     return { error: String((e && e.message) || e) };
@@ -406,6 +440,7 @@ ipcMain.handle("save-key", (_e, key) => {
 });
 ipcMain.handle("list-files", (_e, dir) => {
   try {
+    if (!withinCwd(dir)) return [];
     return fs.readdirSync(dir, { withFileTypes: true }).map((d) => (d.isDirectory() ? d.name + "/" : d.name)).sort().slice(0, 200);
   } catch {
     return [];
@@ -413,6 +448,9 @@ ipcMain.handle("list-files", (_e, dir) => {
 });
 ipcMain.handle("read-file", (_e, file) => {
   try {
+    if (!withinCwd(file)) return { ok: false, error: "작업 폴더 밖의 파일은 열 수 없습니다.", path: file };
+    const st = fs.statSync(file);
+    if (st.size > 25 * 1024 * 1024) return { ok: false, error: "파일이 너무 큽니다 (25MB 초과).", path: file };
     return { ok: true, content: fs.readFileSync(file, "utf8"), path: file };
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e), path: file };
@@ -420,6 +458,7 @@ ipcMain.handle("read-file", (_e, file) => {
 });
 ipcMain.handle("read-xlsx", (_e, file) => {
   try {
+    if (!withinCwd(file)) return { ok: false, error: "작업 폴더 밖의 파일은 열 수 없습니다." };
     const XLSX = require("xlsx");
     const wb = XLSX.readFile(file);
     const sheets = wb.SheetNames.slice(0, 6).map((name) => ({
@@ -445,9 +484,14 @@ ipcMain.handle("capture", async (_e, file) => {
 ipcMain.handle("export-pdf", async (_e, { html, outPath, baseDir }) => {
   let off, tmp;
   try {
-    tmp = path.join(baseDir && fs.existsSync(baseDir) ? baseDir : os.tmpdir(), ".poly-export-" + Date.now() + ".html");
-    fs.writeFileSync(tmp, html);
-    off = new BrowserWindow({ show: false, webPreferences: { offscreen: false } });
+    if (!withinCwd(outPath)) return { ok: false, error: "PDF는 작업 폴더 안에만 저장할 수 있습니다." };
+    // Temp HTML lives in os.tmpdir() (not an attacker-influenced dir); the export HTML already
+    // carries absolute file:// resource refs (KaTeX css, resolved images), so nothing breaks.
+    tmp = path.join(os.tmpdir(), ".poly-export-" + process.pid + "-" + Date.now() + ".html");
+    fs.writeFileSync(tmp, String(html || ""));
+    // Render PDF with JS disabled + sandboxed: the content is already static (math/mermaid
+    // pre-rendered), so no page script should ever run during printToPDF.
+    off = new BrowserWindow({ show: false, webPreferences: { offscreen: false, sandbox: true, contextIsolation: true, javascript: false, webSecurity: true } });
     await off.loadFile(tmp);
     await new Promise((r) => setTimeout(r, 350)); // let fonts/layout settle
     const pdf = await off.webContents.printToPDF({ printBackground: true, pageSize: "A4", margins: { marginType: "default" } });
@@ -469,6 +513,7 @@ ipcMain.handle("stop-web", () => { stopWeb(); return { ok: true }; });
 ipcMain.handle("run-web", async (_e, cwd) => {
   try {
     if (!cwd || !fs.existsSync(cwd)) return { ok: false, error: "작업 폴더가 없습니다." };
+    if (!withinCwd(cwd)) return { ok: false, error: "작업 폴더 밖에서는 실행할 수 없습니다." };
     // Find the project root (cwd or the single subdir that holds package.json/index.html).
     const findRoot = (dir) => {
       if (fs.existsSync(path.join(dir, "package.json")) || fs.existsSync(path.join(dir, "index.html"))) return dir;
@@ -589,8 +634,11 @@ ipcMain.handle("local-rm", (_e, id) =>
 );
 ipcMain.handle("open-external", (_e, url) => {
   try {
-    if (/^https?:\/\//i.test(String(url))) shell.openExternal(String(url));
-    return true;
+    const s = String(url);
+    // Allow http(s) and file:// (the preview ↗ button and PDF auto-open pass file:// URLs);
+    // keep javascript:/data: blocked. Return false on rejection so the renderer sees the failure.
+    if (/^(https?|file):\/\//i.test(s)) { shell.openExternal(s); return true; }
+    return false;
   } catch {
     return false;
   }

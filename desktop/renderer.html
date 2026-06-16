@@ -2,6 +2,11 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
+<!-- Defense-in-depth CSP: blocks external script/connect (exfiltration), plugins, and base-uri
+     hijacking. 'unsafe-inline' is required by the app's inline script/styles; the real XSS
+     defenses are esc()/safeUrl()/DOMPurify below. Local file:// resources + data/img + iframes
+     (html/pdf preview) are allowed so rendering keeps working. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:; font-src 'self' data:; media-src 'self' data: file:; connect-src 'self'; frame-src 'self' file: data:; object-src 'none'; base-uri 'none'" />
 <title>polyrun</title>
 <style>
   :root{
@@ -344,7 +349,10 @@
   .pvbody .md table{border-collapse:collapse;margin:.6em 0}.pvbody .md td,.pvbody .md th{border:1px solid var(--border);padding:6px 12px}.pvbody .md th{background:var(--code);color:var(--accent2)}
   .pvbody .gridwrap{padding:22px 24px}
   .pvbody .gridwrap .sheetname{font-family:Georgia,serif;color:var(--accent2);font-weight:600;margin:0 0 10px}
-  .pvbody .svgwrap{padding:26px;display:flex;justify-content:center;align-items:flex-start;min-height:100%}
+  .pvbody .svgwrap{padding:26px;display:flex;justify-content:center;align-items:flex-start;min-height:100%;overflow:auto}
+  .pvbody .gridmore{padding:10px 14px;color:#8a7d6e;font-size:13px}
+  .pvbody .pvmsg{padding:40px 26px;text-align:center;color:#6b5f52}
+  .pvbody .pvmsg .runbtn{margin-top:14px}
   .pvbody .svgwrap svg{max-width:100%;height:auto}
   .pvbody img.pv{max-width:100%;display:block;margin:0 auto;padding:22px}
   .pvbody pre.raw{margin:0;padding:24px;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:#3a342d;line-height:1.6}
@@ -354,6 +362,7 @@
 <script defer src="node_modules/katex/dist/katex.min.js"></script>
 <script defer src="node_modules/katex/dist/contrib/auto-render.min.js"></script>
 <script defer src="node_modules/mermaid/dist/mermaid.min.js"></script>
+<script defer src="node_modules/dompurify/dist/purify.min.js"></script>
 </head>
 <body>
   <aside class="side">
@@ -476,7 +485,42 @@ function hideHello(){ const h=$("hello"); if(h) h.remove(); }
 // Only auto-pin to the bottom if the user is already near it — so scrolling up to read
 // during a long terminal run isn't yanked back down. Pass force=true to always jump.
 function scroll(force){ const gap=chat.scrollHeight-chat.scrollTop-chat.clientHeight; if(force||gap<120) chat.scrollTop=chat.scrollHeight; }
-function esc(s){ return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+// Escape ALL HTML-significant chars including quotes — otherwise a " in an interpolated URL
+// (img src="$2"/href="$2") breaks out of the attribute and injects a live handler (XSS).
+function esc(s){ return (s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function unesc(s){ return String(s==null?"":s).replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,"&"); }
+// Allow only safe URL schemes in rendered markdown links/images. esc() has already run, so
+// entity-hidden schemes (javascript&#58;) are inert; we only need to catch literal/whitespace
+// forms of javascript:/vbscript:/data: (data:image/* is allowed for inline images).
+function safeUrl(u){ const s=String(u==null?"":u).trim();
+  const probe=s.replace(/[\u0000-\u0020\u00a0]+/g,"").toLowerCase();
+  if(/^data:image\//.test(probe)) return s;
+  if(/^(javascript|vbscript|data):/.test(probe)) return "#";
+  return s; }
+// Render one math span to safe HTML via KaTeX (escapes its own output). Falls back to a plain
+// escaped <code> if KaTeX isn't ready or the TeX is invalid — never injects raw markup.
+const _mathCache=new Map();   // memo so re-rendering the buffer each streaming delta stays O(unique spans)
+function mathHtml(tex,display){ const key=(display?"D":"I")+String(tex);
+  if(_mathCache.has(key)) return _mathCache.get(key);
+  let out; try{ out = window.katex ? window.katex.renderToString(String(tex),{displayMode:!!display,throwOnError:false}) : null; }catch(e){ out=null; }
+  if(out==null) return '<code class="mathraw">'+esc(String(tex))+'</code>';   // don't cache the not-loaded-yet fallback
+  if(_mathCache.size>500) _mathCache.clear();
+  _mathCache.set(key,out); return out; }
+// Sanitize untrusted SVG (LLM-generated / downloaded) before injecting into the privileged
+// renderer: strips <script>, on* handlers, foreignObject, and external href/src so it cannot
+// execute code or fetch/exfiltrate. Returns "" for non-SVG/empty/malformed input.
+function sanitizeSvg(raw){ const c=String(raw==null?"":raw).trim(); if(!c) return "";
+  if(window.DOMPurify){ const out=window.DOMPurify.sanitize(c,{USE_PROFILES:{svg:true,svgFilters:true},
+      FORBID_TAGS:["script","foreignObject"],ADD_ATTR:["viewBox"]});
+    return /<svg[\s>]/i.test(out)?out:""; }
+  // Fallback if DOMPurify failed to load: parse, reject on error, strip handlers/scripts.
+  try{ const doc=new DOMParser().parseFromString(c,"image/svg+xml");
+    if(doc.querySelector("parsererror")||doc.documentElement.tagName.toLowerCase()!=="svg") return "";
+    doc.querySelectorAll("script,foreignObject").forEach(n=>n.remove());
+    doc.querySelectorAll("*").forEach(n=>{ [...n.attributes].forEach(a=>{ const an=a.name.toLowerCase();
+      if(an.startsWith("on")||/^(href|xlink:href|src)$/.test(an)&&/^\s*(javascript|data(?!:image\/)|vbscript):/i.test(a.value)) n.removeAttribute(a.name); }); });
+    return new XMLSerializer().serializeToString(doc.documentElement);
+  }catch(e){ return ""; } }
 
 function userMsg(text){ hideHello(); const m=document.createElement("div"); m.className="msg user"; m.innerHTML='<div class="bubble"></div>'; m.querySelector(".bubble").textContent=text; chat.appendChild(m); scroll(true); }
 function assistantStart(){ finalizeMd(); hideHello(); const m=document.createElement("div"); m.className="msg assistant"; m.innerHTML='<div class="av">P</div><div class="body"></div>'; chat.appendChild(m); cur=m.querySelector(".body"); curP=null; curTerm=null; scroll(); }
@@ -578,6 +622,7 @@ async function refreshFiles(){ if(!cwd) return; const files=await window.poly.li
   knownFiles=new Set(files);
   const box=$("files"); box.innerHTML=""; if(!files.length){box.innerHTML='<div class="file" style="cursor:default">(빈 폴더)</div>';return;} for(const f of files){const d=document.createElement("div");d.className="file"+(f.endsWith("/")?" dir":"");d.innerHTML='<span class="fi">'+iconFor(f)+'</span><span class="fn"></span>';d.querySelector(".fn").textContent=f; if(!f.endsWith("/")) d.onclick=()=>openPreview(cwd.replace(/\/$/,"")+"/"+f); box.appendChild(d);} }
 function setCwd(p){ cwd=p; knownFiles=null;
+  try{ if(p&&window.poly.setCwd) window.poly.setCwd(p); }catch{}   // confine main-process file reads to this folder
   try{ if(p) localStorage.setItem("polyrun.cwd", p); }catch{}
   const name=(p||"").split(/[\\/]/).filter(Boolean).pop()||p;
   $("foldername").textContent=name||"선택 안 됨";
@@ -623,21 +668,35 @@ function mdToHtml(md){
   const inline=(t)=>{
     // Protect inline/display math from Markdown transforms — otherwise _ in LaTeX subscripts
     // (e.g. R_{t-1}) is eaten by the italic rule and breaks KaTeX's $…$ delimiter scan.
-    const math=[]; let s=esc(t).replace(/\$\$[\s\S]+?\$\$|\$[^$\n]+?\$/g,(m)=>{ math.push(m); return " "+(math.length-1)+" "; });
+    // Extract ALL math forms ($$ \[ \] display, $ \( \) inline), render each via KaTeX now, and
+    // stash the safe HTML behind a NUL sentinel that cannot occur in prose. Single-$ requires a
+    // non-digit next so currency ("$5 and $10") is never parsed as math (the NUL sentinel — not a
+    // space — is why ordinary digits like "5 apples" are untouched).
+    const math=[]; let s=esc(t).replace(/ /g,"")
+      .replace(/\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\$(?!\d)([^$\n]+?)\$|\\\(([\s\S]+?)\\\)/g,(m,a,b,c,d)=>{
+        const disp=a!=null||b!=null, tex=a!=null?a:(b!=null?b:(c!=null?c:d));
+        math.push(mathHtml(unesc(tex),disp)); return " "+(math.length-1)+" "; });
     s=s.replace(/`([^`]+)`/g,(_,c)=>"<code>"+c+"</code>")
       .replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>")
       .replace(/~~([^~]+)~~/g,"<del>$1</del>")
-      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g,'<img alt="$1" src="$2" style="max-width:100%;border-radius:8px">')   // image before link
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2">$1</a>')
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g,(_,a,u)=>'<img alt="'+a+'" src="'+safeUrl(u)+'" style="max-width:100%;border-radius:8px">')   // image before link
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g,(_,a,u)=>'<a href="'+safeUrl(u)+'">'+a+'</a>')
       .replace(/\*([^*]+)\*/g,"<em>$1</em>")
       .replace(/(^|[^_])_([^_]+)_(?!_)/g,"$1<em>$2</em>");
-    return s.replace(/ (\d+) /g,(_,n)=>math[+n]);   // restore math verbatim
+    return s.replace(/ (\d+) /g,(_,n)=>math[+n]!==undefined?math[+n]:"");   // restore rendered math
   };
   while(i<lines.length){ let l=lines[i];
     if(/^```/.test(l)){const fence=l.match(/^```+\s*([\w-]*)/);const lang=fence?fence[1]:"";const buf=[];i++;while(i<lines.length&&!/^```/.test(lines[i])){buf.push(lines[i]);i++;}i++;
       if(/^mermaid$/i.test(lang)) out.push('<div class="mermaid">'+esc(buf.join("\n"))+'</div>');
       else out.push('<pre><code class="lang-'+esc(lang)+'">'+highlightCode(buf.join("\n"),lang)+"</code></pre>");
       continue;}
+    // Block display math: a line opening with $$ or \[ — consume (across blank lines) until the
+    // matching close, render once, so the paragraph splitter can't break it into unbalanced halves.
+    { const dm=l.match(/^\s*(\$\$|\\\[)/); if(dm){ const close=dm[1]==="$$"?"$$":"\\]";
+        let body=l.replace(/^\s*(\$\$|\\\[)/,""); const ci=body.indexOf(close);
+        if(ci>=0){ body=body.slice(0,ci); i++; }
+        else { i++; while(i<lines.length){ const k=lines[i].indexOf(close); if(k>=0){ body+="\n"+lines[i].slice(0,k); i++; break; } body+="\n"+lines[i]; i++; } }
+        out.push('<div class="mathblock">'+mathHtml(body.trim(),true)+'</div>'); continue; } }
     let h=l.match(/^(#{1,6})\s+(.*)/); if(h){out.push("<h"+h[1].length+">"+inline(h[2])+"</h"+h[1].length+">");i++;continue;}
     if(/^\s*([-*+]|\d+\.)\s+/.test(l)){ const items=[];
       while(i<lines.length&&/^\s*([-*+]|\d+\.)\s+/.test(lines[i])){ const ln=lines[i];
@@ -676,17 +735,25 @@ function highlightCode(src,lang){
   out+=esc(src.slice(last));
   return out;
 }
+// Build nested <ul>/<ol> with each child list INSIDE its parent <li> (valid list content model):
+// the parent <li> stays open until its nested list closes — browsers/PDF export and screen
+// readers misrender the old <ul><li>..</li><ul>..</ul></ul> sibling form.
 function buildNestedList(items,inline){ let html=""; const stack=[];
-  const closeTo=(ind)=>{ while(stack.length && stack[stack.length-1].indent>ind){ html+=stack.pop().ordered?"</ol>":"</ul>"; } };
+  const liOpen=(it)=> it.task!==null
+    ? '<li class="task"><input type="checkbox" disabled'+(it.task?" checked":"")+">"+inline(it.text)
+    : "<li>"+inline(it.text);
   for(const it of items){
-    if(!stack.length || it.indent>stack[stack.length-1].indent){ stack.push({ordered:it.ordered,indent:it.indent}); html+=it.ordered?"<ol>":"<ul>"; }
-    else { closeTo(it.indent); const top=stack[stack.length-1];
-      if(top && top.indent===it.indent && top.ordered!==it.ordered){ html+=stack.pop().ordered?"</ol>":"</ul>"; stack.push({ordered:it.ordered,indent:it.indent}); html+=it.ordered?"<ol>":"<ul>"; } }
-    html += it.task!==null
-      ? '<li class="task"><input type="checkbox" disabled'+(it.task?" checked":"")+">"+inline(it.text)+"</li>"
-      : "<li>"+inline(it.text)+"</li>";
+    if(!stack.length){ html+=(it.ordered?"<ol>":"<ul>"); stack.push({ordered:it.ordered,indent:it.indent}); html+=liOpen(it); continue; }
+    let top=stack[stack.length-1];
+    if(it.indent>top.indent){ // deeper → open child list inside the still-open parent <li>
+      html+=(it.ordered?"<ol>":"<ul>"); stack.push({ordered:it.ordered,indent:it.indent}); html+=liOpen(it); continue; }
+    // same or shallower → close deeper child lists (with their <li>), then this level's <li>
+    while(stack.length>1 && stack[stack.length-1].indent>it.indent){ html+="</li>"+(stack.pop().ordered?"</ol>":"</ul>"); }
+    html+="</li>"; top=stack[stack.length-1];
+    if(top && top.ordered!==it.ordered){ html+=(top.ordered?"</ol>":"</ul>"); stack.pop(); html+=(it.ordered?"<ol>":"<ul>"); stack.push({ordered:it.ordered,indent:it.indent}); }
+    html+=liOpen(it);
   }
-  while(stack.length){ html+=stack.pop().ordered?"</ol>":"</ul>"; }
+  while(stack.length){ html+="</li>"+(stack.pop().ordered?"</ol>":"</ul>"); }
   return html;
 }
 // LaTeX → HTML for the .tex preview. Not a full TeX engine: it strips the preamble,
@@ -706,6 +773,10 @@ function texToHtml(src){
      .replace(/\\begin\{(align|alignat|flalign)\*?\}([\s\S]*?)\\end\{\1\*?\}/g,(m,e,x)=>"\n\n$$\\begin{aligned}"+x.trim()+"\\end{aligned}$$\n\n")
      .replace(/\\begin\{gather\*?\}([\s\S]*?)\\end\{gather\*?\}/g,(m,x)=>"\n\n$$\\begin{gathered}"+x.trim()+"\\end{gathered}$$\n\n")
      .replace(/\\\[([\s\S]*?)\\\]/g,(m,x)=>"\n\n$$"+x.trim()+"$$\n\n");
+  // Inline $…$ → \(…\) (renderMath no longer treats single-$ as a delimiter). Protect $$…$$ first.
+  b=b.replace(/\$\$[\s\S]*?\$\$/g,(m)=>m.replace(/\$/g,"\x00D\x00"))
+     .replace(/\$([^$\n]+?)\$/g,(m,x)=>"\\("+x+"\\)")
+     .replace(/\x00D\x00/g,"$");
   // mark lists with sentinels that survive escaping
   b=b.replace(/\\begin\{itemize\}([\s\S]*?)\\end\{itemize\}/g,(m,x)=>"\n\nUL"+x+"E\n\n")
      .replace(/\\begin\{enumerate\}([\s\S]*?)\\end\{enumerate\}/g,(m,x)=>"\n\nOL"+x+"E\n\n");
@@ -734,15 +805,32 @@ function texToHtml(src){
   return out.join("\n");
 }
 function gridTable(rows){ let t='<table class="grid">'; for(const r of rows){ t+="<tr>"+(r||[]).map(c=>"<td>"+esc(String(c))+"</td>").join("")+"</tr>"; } return t+"</table>"; }
-function parseCsv(text){ return text.replace(/\r/g,"").split("\n").filter(l=>l.length).map(l=>{const out=[];let cur="",q=false;for(let i=0;i<l.length;i++){const c=l[i];if(q){if(c==='"'&&l[i+1]==='"'){cur+='"';i++;}else if(c==='"')q=false;else cur+=c;}else{if(c==='"')q=true;else if(c===","){out.push(cur);cur="";}else cur+=c;}}out.push(cur);return out;}); }
+// RFC-4180 CSV: a single character stream tracking quote state across newlines, so a quoted
+// field containing a newline stays in one cell instead of splitting into broken rows.
+function parseCsv(text){ const t=String(text).replace(/^﻿/,"").replace(/\r\n?/g,"\n");
+  const rows=[]; let row=[],cur="",q=false;
+  for(let i=0;i<t.length;i++){ const c=t[i];
+    if(q){ if(c==='"'&&t[i+1]==='"'){ cur+='"'; i++; } else if(c==='"') q=false; else cur+=c; }
+    else if(c==='"') q=true;
+    else if(c===","){ row.push(cur); cur=""; }
+    else if(c==="\n"){ row.push(cur); rows.push(row); row=[]; cur=""; }
+    else cur+=c; }
+  if(cur!==""||row.length){ row.push(cur); rows.push(row); }
+  return rows.filter(r=>r.length>1||r[0]!==""); }
 
 function fileUrl(p){ return "file://"+p.split("/").map(encodeURIComponent).join("/"); }
-function renderMath(el){ try{ if(window.renderMathInElement) window.renderMathInElement(el,{delimiters:[{left:"$$",right:"$$",display:true},{left:"\\[",right:"\\]",display:true},{left:"$",right:"$",display:false},{left:"\\(",right:"\\)",display:false}],ignoredClasses:["mermaid"],throwOnError:false}); }catch(e){} }
+// Used by the .tex preview (markdown/chat math is already rendered in-place by inline()/mdToHtml).
+// Single-$ is intentionally NOT a delimiter so prose currency ("$5 and $10") is never rendered as
+// math; the .tex path converts its inline $…$ to \(…\) so it still renders here.
+function renderMath(el){ try{ if(window.renderMathInElement) window.renderMathInElement(el,{delimiters:[{left:"$$",right:"$$",display:true},{left:"\\[",right:"\\]",display:true},{left:"\\(",right:"\\)",display:false}],ignoredClasses:["mermaid"],throwOnError:false}); }catch(e){} }
 // Render ```mermaid blocks (and .mmd files) into vector SVG diagrams via the bundled mermaid lib.
 let mermaidReady=false;
 async function renderMermaid(root){ const nodes=root&&root.querySelectorAll?[...root.querySelectorAll(".mermaid")]:[];
   if(!nodes.length||!window.mermaid) return;
-  try{ if(!mermaidReady){ window.mermaid.initialize({startOnLoad:false,securityLevel:"loose",theme:"base",
+  // securityLevel:'strict' sanitizes labels and disables the `click … call fn()` directive — diagram
+  // source is untrusted (LLM/file), and 'loose' would let it reach window.poly. deterministicIds
+  // keeps marker/arrowhead url(#id) refs unique so back-to-back diagrams don't collide.
+  try{ if(!mermaidReady){ window.mermaid.initialize({startOnLoad:false,securityLevel:"strict",deterministicIds:true,theme:"base",
       themeVariables:{primaryColor:"#efe6d5",primaryTextColor:"#2a211e",primaryBorderColor:"#6e2436",lineColor:"#8a7d6e",secondaryColor:"#e9dfcd",tertiaryColor:"#fffdf8",fontFamily:"system-ui"}}); mermaidReady=true; }
     await window.mermaid.run({nodes}); }catch(e){ /* leave raw text on parse error */ }
 }
@@ -764,6 +852,11 @@ async function openPreview(path){
     if(["png","jpg","jpeg","gif","webp","ico","bmp"].includes(ext)){ body.innerHTML='<img class="pv" src="'+fileUrl(path)+'">'; return; }
     if(ext==="pdf"){ body.innerHTML='<iframe src="'+fileUrl(path)+'"></iframe>'; return; }
     if(ext==="xlsx"||ext==="xls"){ const r=await window.poly.readXlsx(path); if(!r.ok){body.innerHTML='<pre class="raw">'+esc(r.error)+'</pre>';return;} body.innerHTML='<div class="gridwrap">'+r.sheets.map(s=>'<div class="sheetname">📊 '+esc(s.name)+'</div>'+gridTable(s.rows)).join("<br>")+'</div>'; return; }
+    // Binary office/doc formats have no text renderer — reading them as utf8 shows mojibake, so
+    // offer to open externally instead of dumping raw bytes.
+    if(["docx","doc","pptx","ppt","zip","bin","exe","dll","woff","woff2","ttf"].includes(ext)){
+      body.innerHTML='<div class="pvmsg">이 형식('+esc(ext)+')은 미리보기를 지원하지 않습니다.<br><button class="runbtn" id="pvext2">외부 앱에서 열기 ↗</button></div>';
+      const b=$("pvext2"); if(b) b.onclick=()=>window.poly.openExternal(fileUrl(path)); return; }
     // text / document types: read source, expose the source⇄preview toggle, render
     const r=await window.poly.readFile(path);
     if(!r.ok){ body.innerHTML='<pre class="raw">'+esc(r.error||"읽기 실패")+'</pre>'; return; }
@@ -771,14 +864,30 @@ async function openPreview(path){
     pvRenderPreview();
   }catch(e){ body.innerHTML='<pre class="raw">'+esc(String(e))+'</pre>'; }
 }
+// Resolve relative <img>/<a> refs in a previewed .md against the artifact's own folder, so a
+// relative image (images/x.png) loads from the document's directory, not the app dir.
+function resolveRelativeRefs(root){ const dir=(pvCurrent.path||"").replace(/[\/\\][^\/\\]*$/,"");
+  if(!dir) return;
+  root.querySelectorAll("img[src],a[href]").forEach(el=>{ const attr=el.hasAttribute("src")?"src":"href"; const v=el.getAttribute(attr)||"";
+    if(/^(https?:|data:|file:|mailto:|#|\/)/i.test(v)||v==="#") return;
+    el.setAttribute(attr, fileUrl(dir+"/"+v)); }); }
 function pvRenderPreview(){ const body=$("pvbody"), ext=pvCurrent.ext, c=pvCurrent.content;
   if(ext==="html"||ext==="htm"){ body.innerHTML='<iframe src="'+fileUrl(pvCurrent.path)+'" sandbox="allow-same-origin"></iframe>'; return; }
-  if(ext==="svg"){ body.innerHTML='<div class="svgwrap">'+c+'</div>'; return; }
-  if(ext==="md"||ext==="markdown"){ body.innerHTML='<div class="md">'+mdToHtml(c)+'</div>'; renderMath(body.firstChild); renderMermaid(body); addCopyButtons(body); return; }
+  if(ext==="svg"){ const clean=sanitizeSvg(c);
+    body.innerHTML = clean ? '<div class="svgwrap">'+clean+'</div>'
+      : '<pre class="raw">'+esc(c||"(빈 SVG)")+'</pre>'; return; }
+  if(ext==="md"||ext==="markdown"){ body.innerHTML='<div class="md">'+mdToHtml(c)+'</div>'; resolveRelativeRefs(body); renderMath(body.firstChild); renderMermaid(body); addCopyButtons(body); return; }
   if(ext==="tex"){ body.innerHTML='<div class="md">'+texToHtml(c)+'</div>'; renderMath(body.firstChild); return; }
   if(ext==="mmd"||ext==="mermaid"){ body.innerHTML='<div class="md"><div class="mermaid">'+esc(c)+'</div></div>'; renderMermaid(body); return; }
-  if(ext==="csv"){ body.innerHTML='<div class="gridwrap">'+gridTable(parseCsv(c))+'</div>'; return; }
-  if(ext==="json"){ let p=c; try{p=JSON.stringify(JSON.parse(c),null,2);}catch{} body.innerHTML='<pre class="raw">'+esc(p)+'</pre>'; addCopyButtons(body); return; }
+  if(ext==="csv"){ const rows=parseCsv(c); const CAP=500; const shown=rows.slice(0,CAP);
+    let html='<div class="gridwrap">'+gridTable(shown);
+    if(rows.length>CAP) html+='<div class="gridmore">… +'+(rows.length-CAP)+'개 행 더 있음 (미리보기는 '+CAP+'행까지)</div>';
+    body.innerHTML=html+'</div>'; return; }
+  if(ext==="json"){ let p=c;
+    // Pretty-print, but only when it can't lose precision — re-stringifying a >15-digit integer
+    // (64-bit/snowflake id) silently corrupts it, so fall back to the raw source then.
+    if(!/\d{16,}/.test(c)){ try{p=JSON.stringify(JSON.parse(c),null,2);}catch{} }
+    body.innerHTML='<pre class="raw">'+esc(p)+'</pre>'; addCopyButtons(body); return; }
   body.innerHTML='<pre class="raw">'+esc(c)+'</pre>'; addCopyButtons(body);
 }
 function pvShowSource(){ const body=$("pvbody"); body.innerHTML='<pre class="raw">'+esc(pvCurrent.content||"")+'</pre>'; addCopyButtons(body); }
@@ -789,7 +898,7 @@ $("pvclose").onclick=()=>{ $("preview").hidden=true; };
 $("pvsource").onclick=pvToggleSource;
 $("pvopen").onclick=()=>{ if(pvCurrent.path) window.poly.openExternal(fileUrl(pvCurrent.path)); };
 // Export the rendered preview to a PDF (printToPDF in main). Only for rendered doc types.
-const PDF_OK=/^(md|markdown|tex|mmd|mermaid|csv|json|svg)$/;
+const PDF_OK=/^(md|markdown|tex|mmd|mermaid|csv|json|svg|xlsx|xls)$/;
 function buildExportHtml(){
   const css=(document.querySelector("style")||{}).textContent||"";
   const katexCss=new URL("node_modules/katex/dist/katex.min.css", location.href).href;

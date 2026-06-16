@@ -80,7 +80,10 @@ function buildPolicy(
     pinned: config.pinned,
     empirical,
     excludeFree: opts.free === false,
-    excludeLocal: opts.local === false,
+    // With an OpenRouter key, default to cloud (local $0 models otherwise always win cheapest/value
+    // routing, so adding a key would change nothing). `--local` forces local back in; `--no-local`
+    // always excludes it.
+    excludeLocal: opts.local === false || (!!resolveApiKey(config) && opts.local !== true),
     explore: Number.isFinite(explore) ? Math.min(Math.max(explore, 0), 1) : 0,
   };
 }
