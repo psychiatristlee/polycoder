@@ -645,9 +645,9 @@ ipcMain.handle("local-rm", (_e, id) =>
 ipcMain.handle("open-external", (_e, url) => {
   try {
     const s = String(url);
-    // Allow http(s) and file:// (the preview ↗ button and PDF auto-open pass file:// URLs);
-    // keep javascript:/data: blocked. Return false on rejection so the renderer sees the failure.
-    if (/^(https?|file):\/\//i.test(s)) { shell.openExternal(s); return true; }
+    // Allow http(s), file:// (preview ↗ + PDF auto-open) and mailto: (markdown links); keep
+    // javascript:/data: blocked. Return false on rejection so the renderer sees the failure.
+    if (/^(https?|file):\/\//i.test(s) || /^mailto:/i.test(s)) { shell.openExternal(s); return true; }
     return false;
   } catch {
     return false;

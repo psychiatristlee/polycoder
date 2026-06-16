@@ -481,6 +481,13 @@ function beginInstall(label, fn){
   installing=true; showView("chat"); assistantStart(); status(label,"info"); busyOn("설치/다운로드 중… 수 분 걸릴 수 있어요"); fn();
 }
 const chat=$("chat");
+// Markdown links (in chat + preview) open in the external browser instead of navigating the app —
+// delegated so it covers dynamically-rendered content. http(s)/file/mailto go to the OS; in-page
+// (#) anchors fall through; anything else (e.g. neutralized "#") is a no-op.
+document.addEventListener("click",(e)=>{ const a=e.target&&e.target.closest?e.target.closest("a[href]"):null; if(!a) return;
+  const href=a.getAttribute("href")||"";
+  if(/^(https?|file|mailto):/i.test(href)){ e.preventDefault(); try{ window.poly.openExternal(href); }catch(_){} }
+  else if(!href.startsWith("#")) e.preventDefault(); });
 function hideHello(){ const h=$("hello"); if(h) h.remove(); }
 // Only auto-pin to the bottom if the user is already near it — so scrolling up to read
 // during a long terminal run isn't yanked back down. Pass force=true to always jump.
@@ -682,7 +689,11 @@ function mdToHtml(md){
       .replace(/!\[([^\]]*)\]\(([^)]+)\)/g,(_,a,u)=>'<img alt="'+a+'" src="'+safeUrl(u)+'" style="max-width:100%;border-radius:8px">')   // image before link
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g,(_,a,u)=>'<a href="'+safeUrl(u)+'">'+a+'</a>')
       .replace(/\*([^*]+)\*/g,"<em>$1</em>")
-      .replace(/(^|[^_])_([^_]+)_(?!_)/g,"$1<em>$2</em>");
+      .replace(/(^|[^_])_([^_]+)_(?!_)/g,"$1<em>$2</em>")
+      // Autolink bare URLs. Requiring whitespace/start/( before the URL excludes URLs already
+      // inside an attribute (preceded by ") or a tag/<code>/<a> (preceded by >), so existing links
+      // and code spans aren't double-linked. Trailing punctuation is left outside the link.
+      .replace(/(^|[\s(])(https?:\/\/[^\s<>"')]+)/g,(m,pre,url)=>{ const tail=(url.match(/[.,;:!?)]+$/)||[""])[0]; const u=url.slice(0,url.length-tail.length); return pre+'<a href="'+safeUrl(u)+'">'+u+'</a>'+tail; });
     return s.replace(/ (\d+) /g,(_,n)=>math[+n]!==undefined?math[+n]:"");   // restore rendered math
   };
   while(i<lines.length){ let l=lines[i];

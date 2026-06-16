@@ -109,5 +109,11 @@ ok("table align left", /<th style="text-align:left">L<\/th>/.test(at));
 ok("table align center", /text-align:center">C<\/th>/.test(at) && /text-align:center">b<\/td>/.test(at));
 ok("table align right", /text-align:right">R<\/th>/.test(at) && /text-align:right">c<\/td>/.test(at));
 
+// bare-URL autolinking (without double-linking existing links or code-span URLs)
+ok("autolink bare url", /<a href="https:\/\/example\.com">https:\/\/example\.com<\/a>/.test(mdToHtml("방문 https://example.com 하세요")));
+ok("autolink trailing punct outside link", /<a href="https:\/\/ex\.com">https:\/\/ex\.com<\/a>\./.test(mdToHtml("see https://ex.com.")));
+ok("existing md link not double-linked", (mdToHtml("[x](https://y.com)").match(/<a /g) || []).length === 1);
+ok("url in code span not autolinked", !/<code><a/.test(mdToHtml("`https://incode.com`")));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
