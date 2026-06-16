@@ -1133,6 +1133,7 @@ window.poly.onAuto((a)=>{ setCwd(a.cwd); if(a.cwd) bindFolderConv(a.cwd); if(a.g
   }
   if(a.view==="model"){ showView("model"); if(a.shot){ setTimeout(()=>{const w=document.querySelector(".modelwrap"); if(w) w.scrollTop=w.scrollHeight;},6000); } }
   if(a.preview){ setTimeout(()=>openPreview(a.preview),800); }
+  if(a.preview && a.testExport){ setTimeout(()=>{ try{ exportPdf(); }catch(e){} }, 2600); }   // test hook: drive a real PDF export
   if(a.run && a.goal && a.view!=="supervise"){ setTimeout(run,600); }
   else if(a.preview){ const nm=a.preview.split("/").pop(); userMsg("이 아티팩트를 미리보기로 렌더해줘: "+nm); assistantStart(); status("아티팩트 렌더 → 오른쪽 미리보기 패널","info"); status("✓ "+nm+" 네이티브 렌더 완료 (SVG·PDF·HTML·Markdown·CSV·JSON·XLSX 지원)","ok"); }
 });

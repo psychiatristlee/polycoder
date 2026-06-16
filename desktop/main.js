@@ -272,6 +272,7 @@ function createWindow() {
         shot: process.env.POLY_SHOT || "",
         run: !!process.env.POLY_AUTORUN,
         preview: process.env.POLY_PREVIEW || "",
+        testExport: !!process.env.POLY_TEST_EXPORT,   // test hook: auto-trigger PDF export of the preview
         view: process.env.POLY_VIEW || "",
         sup: {
           agent: process.env.POLY_SUP_AGENT || "",
@@ -412,8 +413,16 @@ function approveCwd(dir) {
 function withinCwd(p) {
   if (!approvedCwd || !p) return false;
   try {
+    const abs = path.resolve(String(p));
     let rp;
-    try { rp = fs.realpathSync(path.resolve(String(p))); } catch { rp = path.resolve(String(p)); } // target may not exist yet (export)
+    try {
+      rp = fs.realpathSync(abs);
+    } catch {
+      // Target may not exist yet (e.g. an export output path). Realpath the existing PARENT so
+      // symlinked path components (macOS /tmp → /private/tmp, or a symlinked working folder) still
+      // match approvedCwd, then re-append the basename.
+      try { rp = path.join(fs.realpathSync(path.dirname(abs)), path.basename(abs)); } catch { rp = abs; }
+    }
     return rp === approvedCwd || rp.startsWith(approvedCwd + path.sep);
   } catch { return false; }
 }
