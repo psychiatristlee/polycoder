@@ -97,5 +97,11 @@ ok("relative css = needs local", needsLocal('<link rel="stylesheet" href="style.
 ok("relative img = needs local", needsLocal('<img src="pics/a.png">') === true);
 ok("data uri = self-contained", needsLocal('<img src="data:image/png;base64,AA">') === false);
 
+// table cells: escaped \| and pipes inside `code` must NOT create extra columns
+const tbl = mdToHtml("| 식 | 결과 |\n|----|----|\n| `a \\| b` | OR |\n| c \\| d | esc |");
+ok("table 2 data cells per row (pipe-safe)", (tbl.match(/<td>/g) || []).length === 4);
+ok("table code-pipe kept in one cell", /<td><code>a \| b<\/code><\/td>/.test(tbl));
+ok("table escaped-pipe literal", /<td>c \| d<\/td>/.test(tbl));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
