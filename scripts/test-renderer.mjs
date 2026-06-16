@@ -115,5 +115,7 @@ ok("autolink trailing punct outside link", /<a href="https:\/\/ex\.com">https:\/
 ok("existing md link not double-linked", (mdToHtml("[x](https://y.com)").match(/<a /g) || []).length === 1);
 ok("url in code span not autolinked", !/<code><a/.test(mdToHtml("`https://incode.com`")));
 
+ok("mdToHtml strips leading BOM (heading renders)", /<h1>제목<\/h1>/.test(mdToHtml("\uFEFF# 제목")));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

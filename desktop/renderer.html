@@ -671,7 +671,7 @@ function renderFolders(){ const box=$("folders"); if(!box) return; box.innerHTML
 
 /* ---- markdown ---- */
 function mdToHtml(md){
-  const lines=md.replace(/\r/g,"").split("\n"); let out=[],i=0;
+  const lines=String(md).replace(/^\uFEFF/,"").replace(/\r/g,"").split("\n"); let out=[],i=0;
   const inline=(t)=>{
     // Protect inline/display math from Markdown transforms — otherwise _ in LaTeX subscripts
     // (e.g. R_{t-1}) is eaten by the italic rule and breaks KaTeX's $…$ delimiter scan.
@@ -881,7 +881,7 @@ async function openPreview(path){
     // text / document types: read source, expose the source⇄preview toggle, render
     const r=await window.poly.readFile(path);
     if(!r.ok){ body.innerHTML='<pre class="raw">'+esc(r.error||"읽기 실패")+'</pre>'; return; }
-    pvCurrent.content=r.content; $("pvsource").style.display="";
+    pvCurrent.content=String(r.content||"").replace(/^\uFEFF/,""); $("pvsource").style.display="";   // strip UTF-8 BOM so the first heading/JSON isn't broken
     pvRenderPreview();
   }catch(e){ body.innerHTML='<pre class="raw">'+esc(String(e))+'</pre>'; }
 }
