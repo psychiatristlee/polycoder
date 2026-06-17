@@ -82,7 +82,47 @@ async function duckduckgo(query: string, n: number): Promise<SearchOutcome> {
     results.push({ title: stripTags(m[2]), url: href, snippet: snippets[i] ?? "" });
     i++;
   }
+  // The keyless html endpoint frequently returns a bot-block "anomaly" page (0 results). DDG's
+  // lite endpoint has a different anti-bot profile and usually still answers — fall back to it so
+  // results stay reliable (DDG/Bing quality) instead of going empty.
+  if (!results.length) {
+    try {
+      const lite = await ddgLite(query, n);
+      if (lite.length) return { provider: "duckduckgo", results: lite };
+    } catch {
+      /* keep empty */
+    }
+  }
   return { provider: "duckduckgo", results };
+}
+
+async function ddgLite(query: string, n: number): Promise<WebResult[]> {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), 15000);
+  try {
+    const res = await fetch("https://lite.duckduckgo.com/lite/", {
+      method: "POST",
+      signal: c.signal,
+      headers: { "user-agent": UA, "content-type": "application/x-www-form-urlencoded" },
+      body: "q=" + encodeURIComponent(query),
+    });
+    const body = await res.text();
+    const results: WebResult[] = [];
+    const re = /<a[^>]*class="[^"]*result-link[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(body)) && results.length < n) {
+      let href = m[1];
+      const uddg = href.match(/[?&]uddg=([^&]+)/);
+      if (uddg) {
+        try { href = decodeURIComponent(uddg[1]); } catch { /* keep */ }
+      }
+      if (href.startsWith("//")) href = "https:" + href;
+      if (/^https?:\/\//.test(href)) results.push({ title: stripTags(m[2]), url: href, snippet: "" });
+    }
+    return results;
+  } finally {
+    clearTimeout(t);
+  }
 }
 
 async function brave(query: string, n: number, cfg: SearchProviderConfig): Promise<SearchOutcome> {
